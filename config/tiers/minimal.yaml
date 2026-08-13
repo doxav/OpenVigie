@@ -1,0 +1,98 @@
+site_id: site-01
+tier: minimal
+latitude: 44.0
+longitude: 3.0
+sunrise_h: 7.0
+sunset_h: 21.0
+site_altitude_m: 0.0
+operating:
+  mode: measure
+  allow_uncalibrated_alerts: false
+platform:
+  firmware: openipc
+  soc: hi3516av300
+  compute: onboard
+  external_device: ''
+network:
+  transport: file
+  url: ''
+  health_url: ''
+  token_env: OPENVIGIE_TOKEN
+  events_path: data/events.jsonl
+  outbox_dir: data/outbox
+  heartbeat_interval_s: 600.0
+  max_queue_entries: 5000
+  max_attempts: 12
+  verify_tls: true
+calibration:
+  enabled: false
+  adsb_source: none
+  adsb_url: http://127.0.0.1:8080/data/aircraft.json
+  calibration_path: data/calibration
+  bearing_sigma_deg: 0.5
+  min_observations: 25
+  drift_yaw_tolerance_deg: 0.15
+  drift_pitch_tolerance_deg: 0.15
+  fit_clock_offset: true
+  fit_altitude_offset: false
+optics:
+  sensor: IMX675
+  focal_mm: 6.25
+  f_min_mm: 2.7
+  f_max_mm: 13.5
+  camera_height_m: 40.0
+  tilt_deg: 1.5
+  max_distance_m: 20000.0
+scan:
+  mode: ptz
+  n_views: 5
+  dwell_s: 15.0
+  settle_s: 4.0
+  overlap: 0.15
+  target_range_m: 3500.0
+  priority_views: []
+pipeline:
+  detector_backend: classical
+  detector_kwargs: {}
+  use_segmentation: false
+  use_temporal_model: false
+  use_ptz_confirmation: false
+  use_triangulation: false
+  max_rois_per_frame: 12
+  min_visits_before_alert: 4
+  vibration_gate_px: 6.0
+candidates:
+  mad_k: 4.0
+  blur_sigma: 1.2
+  min_area_px: 25
+  max_area_frac: 0.25
+  open_iters: 1
+  close_iters: 2
+  require_ground_contact: true
+  ground_contact_margin_px: 8
+  max_level_shift: 25.0
+  min_contrast_ratio: 0.6
+  max_contrast_ratio: 1.7
+decision:
+  enter_threshold: 0.85
+  exit_threshold: 0.45
+  min_persistence_visits: 4
+  require_ground_origin: true
+  require_growth: true
+fusion:
+  schema_version: 1
+  bias: -4.5
+  fitted: false
+  weights:
+    persistence: 1.6
+    growth_score: 1.8
+    upward_score: 1.1
+    ground_origin: 2.2
+    contrast_loss: 0.9
+    translucency: 0.6
+    wind_coherence: 0.7
+    cnn_score: 2.4
+dem_path: ''
+masks: {}
+wind_bearing_deg: null
+peers: []

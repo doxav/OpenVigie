@@ -1,0 +1,48 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Installation complète
+        run: pip install -e ".[dev,full]"
+
+      - name: Tests (OpenCV + SciPy)
+        run: pytest -q
+
+      # Garantit que le coeur tourne sur une carte caméra OpenIPC, où seul
+      # NumPy est disponible. Toute contribution doit passer les deux.
+      - name: Tests en NumPy pur (cible embarquée)
+        run: OPENVIGIE_FORCE_NUMPY=1 pytest -q
+
+      - name: Lint
+        run: ruff check src tests
+
+  edge-minimal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Installation minimale (NumPy + PyYAML uniquement)
+        run: pip install -e . && pip install pytest
+      - name: Le paquet doit fonctionner sans OpenCV ni SciPy
+        run: |
+          python -c "import openvigie; print(openvigie.__version__)"
+          python -m openvigie.cli hw --matrix
+          python -m openvigie.cli selftest -t medium --mode plume
+          python -m openvigie.cli selftest -t medium --mode cloud
+          python -m openvigie.cli calibrate -t full --simulate
+          python -m openvigie.cli capabilities -t full
+          pytest -q

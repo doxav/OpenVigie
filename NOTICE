@@ -1,0 +1,9 @@
+OpenVigie — détection précoce de feux de forêt depuis des points hauts
+Copyright 2026 Contributeurs du projet OpenVigie
+
+Ce produit inclut du logiciel développé par les contributeurs du projet OpenVigie.
+Distribué sous licence Apache License 2.0 (voir LICENSE).
+
+Le backend optionnel `UltralyticsDetector` s'interface avec le paquet
+`ultralytics` (AGPL-3.0), qui n'est ni une dépendance ni installé par défaut.
+Voir docs/LICENCES.md.

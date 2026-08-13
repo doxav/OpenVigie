@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openvigie"
+version = "0.5.0"
+description = "Détection précoce de feux de forêt depuis des points hauts (tours télécom, pylônes)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Projet OpenVigie" }]
+keywords = ["wildfire", "smoke-detection", "ptz", "edge", "dfci"]
+classifiers = [
+  # AUDIT : le statut doit être visible dès les métadonnées du paquet.
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+# Dépendances minimales volontairement réduites : le coeur doit tourner sur une
+# carte caméra où seul NumPy est disponible.
+dependencies = ["numpy>=1.24", "pyyaml>=6.0"]
+
+[project.optional-dependencies]
+# Poste de développement et tier FULL
+full = ["opencv-python-headless>=4.8", "scipy>=1.10", "onnxruntime>=1.16", "requests>=2.31"]
+ptz = ["pyserial>=3.5", "requests>=2.31"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "ruff>=0.5"]
+# Greffon AGPL-3.0 : installé explicitement par l'utilisateur, jamais par défaut.
+# Voir docs/LICENCES.md avant de l'activer.
+ultralytics = ["ultralytics>=8.2"]
+
+[project.scripts]
+openvigie = "openvigie.cli:main"
+
+[project.urls]
+Repository = "https://github.com/VOTRE-USER/OpenVigie"
+Documentation = "https://github.com/VOTRE-USER/OpenVigie/blob/main/README.md"
+Issues = "https://github.com/VOTRE-USER/OpenVigie/issues"
+Changelog = "https://github.com/VOTRE-USER/OpenVigie/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+  "hardware: nécessite du matériel réel (caméra, tête PTZ) — désélectionné par défaut",
+  "slow: test long",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["E501"]
