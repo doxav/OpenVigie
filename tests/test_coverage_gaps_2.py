@@ -57,6 +57,7 @@ class TestBuildTransportEtOutbox:
         assert t.path == tmp_path / "sub" / "events.jsonl"
 
     def test_transport_http_lit_le_jeton_dans_lenvironnement(self, monkeypatch):
+        pytest.importorskip("requests", reason="transport HTTP optionnel")
         cfg = tier_defaults("medium")
         cfg.network.transport = "http"
         cfg.network.url = "https://example.org/events"
@@ -67,6 +68,7 @@ class TestBuildTransportEtOutbox:
         assert t.headers["Authorization"] == "Bearer secret-123"
 
     def test_transport_http_sans_jeton_dans_lenvironnement(self, monkeypatch):
+        pytest.importorskip("requests", reason="transport HTTP optionnel")
         cfg = tier_defaults("medium")
         cfg.network.transport = "http"
         cfg.network.url = "https://example.org/events"
