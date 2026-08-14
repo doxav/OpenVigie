@@ -19,14 +19,25 @@ def _load(args) -> object:
         return load_site_config(args.config)
     return tier_defaults(getattr(args, "tier", "minimal"))
 
+def _planned_views(cfg):
+    """Plan historique, ou vues sectorielles quand `sectors:` est déclaré."""
+    sensor = cfg.optics.sensor_spec()
+    lens = cfg.optics.lens_spec()
+    if cfg.sectors:
+        from .modules import plan_sector_views
+        return plan_sector_views(cfg.sector_list(), sensor, lens, cfg.scan.overlap)
+    return plan_uniform_ring(
+        sensor, lens, cfg.scan.n_views, cfg.scan.target_range_m, cfg.scan.overlap
+    )
+
+
 
 def cmd_plan(args) -> int:
     """Calcule le plan de couverture et le budget de balayage."""
     cfg = _load(args)
     sensor = cfg.optics.sensor_spec()
-    lens = cfg.optics.lens_spec()
-    views = plan_uniform_ring(sensor, lens, cfg.scan.n_views, cfg.scan.target_range_m, cfg.scan.overlap)
-    budget = scan_budget(cfg.scan.n_views, cfg.scan.dwell_s, cfg.scan.settle_s, cfg.scan.mode == "ptz")
+    views = _planned_views(cfg)
+    budget = scan_budget(len(views), cfg.scan.dwell_s, cfg.scan.settle_s, cfg.scan.mode == "ptz")
 
     out = {
         "tier": cfg.tier,
@@ -44,11 +55,23 @@ def cmd_plan(args) -> int:
         return 0
 
     print(f"Tier {cfg.tier} — capteur {sensor.name} — mode {cfg.scan.mode}")
-    print(f"{len(views)} vues, champ {views[0].hfov_deg:.1f}°, focale {views[0].focal_mm:.2f} mm")
-    print(
-        f"Panache minimum détectable à {cfg.scan.target_range_m / 1000:.1f} km : "
-        f"{views[0].min_plume_m:.0f} m"
-    )
+    if cfg.sectors:
+        from .modules import total_span_deg
+        span = total_span_deg(cfg.sector_list())
+        fmin = min(v.focal_mm for v in views)
+        fmax = max(v.focal_mm for v in views)
+        worst = max(views, key=lambda v: v.min_plume_m)
+        print(f"{len(views)} vues sur {span:.1f}° utiles, focale {fmin:.2f}–{fmax:.2f} mm")
+        print(
+            f"Cas le plus contraignant : panache {worst.min_plume_m:.0f} m "
+            f"à {worst.target_range_m / 1000:.1f} km"
+        )
+    else:
+        print(f"{len(views)} vues, champ {views[0].hfov_deg:.1f}°, focale {views[0].focal_mm:.2f} mm")
+        print(
+            f"Panache minimum détectable à {cfg.scan.target_range_m / 1000:.1f} km : "
+            f"{views[0].min_plume_m:.0f} m"
+        )
     print(f"Cycle : {budget.cycle_s / 60:.2f} min — plancher de latence {budget.detection_latency_floor_s / 60:.2f} min")
     if budget.moves_per_year:
         print(f"Usure : {budget.moves_per_year:,.0f} mouvements/an")
@@ -117,10 +140,7 @@ def cmd_ptz_test(args) -> int:
     from .ptz import SimulatedPtz, pelco_d_goto_preset
 
     cfg = _load(args)
-    views = plan_uniform_ring(
-        cfg.optics.sensor_spec(), cfg.optics.lens_spec(), cfg.scan.n_views,
-        cfg.scan.target_range_m, cfg.scan.overlap,
-    )
+    views = _planned_views(cfg)
     sched = ScanScheduler(views, cfg.scan.dwell_s, cfg.scan.settle_s)
     backend = SimulatedPtz()
     for slot in sched.plan_cycle():

@@ -37,7 +37,7 @@ calibration:
   fit_altitude_offset: false
 optics:
   sensor: IMX675
-  focal_mm: 6.25
+  focal_mm: 6.4
   f_min_mm: 2.7
   f_max_mm: 13.5
   camera_height_m: 40.0
@@ -45,11 +45,11 @@ optics:
   max_distance_m: 20000.0
 scan:
   mode: ptz
-  n_views: 5
+  n_views: 4
   dwell_s: 15.0
   settle_s: 4.0
   overlap: 0.15
-  target_range_m: 3500.0
+  target_range_m: 8000.0
   priority_views: []
 pipeline:
   detector_backend: classical
@@ -94,7 +94,13 @@ fusion:
     cnn_score: 2.4
 dem_path: ''
 survey_path: ''
-sectors: []
+sectors:
+- name: S00
+  start_deg: 170.0
+  end_deg: 310.0
+  max_range_m: 8000.0
+  priority: 1.0
+  target_plume_m: 30.0
 masks: {}
 wind_bearing_deg: null
 peers: []

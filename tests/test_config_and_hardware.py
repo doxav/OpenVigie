@@ -46,6 +46,16 @@ class TestConfig:
         assert cfg.optics.sensor_spec().name == "IMX675"
         assert cfg.scan.n_views >= 1
 
+    def test_minimal_est_reellement_sectoriel(self):
+        cfg = tier_defaults("minimal")
+        assert cfg.scan.mode == "ptz"
+        assert cfg.scan.n_views == 4
+        assert cfg.scan.target_range_m == pytest.approx(8_000.0)
+        assert len(cfg.sectors) == 1
+        sector = cfg.sector_list()[0]
+        assert sector.span_deg == pytest.approx(140.0)
+        assert sector.max_range_m == pytest.approx(8_000.0)
+
     def test_tier_inconnu(self):
         with pytest.raises(ValueError):
             tier_defaults("gigantesque")

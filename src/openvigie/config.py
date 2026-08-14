@@ -369,17 +369,20 @@ def tier_defaults(tier: str) -> SiteConfig:
         raise ValueError(f"tier inconnu '{tier}'")
 
     if tier == "minimal":
-        # 1 module fixe + 1 bloc 30x sur tête de laboratoire.
-        # Objectif : mesurer, pas détecter. Aucune alerte automatique.
+        # Une seule caméra IMX675 avec zoom motorisé 2,7-13,5 mm montée sur une
+        # tête pan/tilt de mesure. Le tier cible par défaut un secteur utile de
+        # 140° à 8 km; `openvigie sectors` doit ensuite être utilisé avec le
+        # viewshed réel du site pour remplacer cet exemple.
         return SiteConfig(
             tier="minimal",
-            # AUDIT P1 : le tier MINIMAL est présenté comme une campagne de
-            # mesure ; il ne doit donc pas pouvoir produire d'alerte du tout.
             operating=OperatingConfig(mode="measure"),
             platform=PlatformConfig(soc="hi3516av300", compute="onboard"),
             network=NetworkConfig(transport="file", heartbeat_interval_s=600.0),
-            optics=OpticsConfig(sensor="IMX675", focal_mm=6.25),
-            scan=ScanConfig(mode="ptz", n_views=5, dwell_s=15.0, settle_s=4.0, target_range_m=3_500.0),
+            optics=OpticsConfig(sensor="IMX675", focal_mm=6.4),
+            scan=ScanConfig(
+                mode="ptz", n_views=4, dwell_s=15.0, settle_s=4.0,
+                target_range_m=8_000.0,
+            ),
             pipeline=PipelineConfig(
                 detector_backend="classical",
                 use_segmentation=False,
@@ -388,11 +391,19 @@ def tier_defaults(tier: str) -> SiteConfig:
                 min_visits_before_alert=4,
             ),
             decision=DecisionConfig(enter_threshold=0.85, min_persistence_visits=4),
+            sectors=[{
+                "name": "S00",
+                "start_deg": 170.0,
+                "end_deg": 310.0,
+                "max_range_m": 8_000.0,
+                "priority": 1.0,
+                "target_plume_m": 30.0,
+            }],
         )
 
     if tier == "medium":
         # 6-8 modules fixes couvrant 360°, calcul dans les caméras (IVE/NNIE),
-        # 1 bloc 30x pour la confirmation. Aucun calculateur externe.
+        # 1 bloc caméra zoom 30× + tête pan/tilt pour la confirmation. Aucun calculateur externe.
         return SiteConfig(
             tier="medium",
             # `shadow` par défaut : les événements sont produits et journalisés
@@ -413,7 +424,7 @@ def tier_defaults(tier: str) -> SiteConfig:
             decision=DecisionConfig(enter_threshold=0.78, min_persistence_visits=3),
         )
 
-    # full : réseau fixe + PTZ + calculateur externe
+    # full : réseau fixe + caméra zoom sur tête PTZ + calculateur externe
     return SiteConfig(
         tier="full",
         operating=OperatingConfig(mode="shadow"),

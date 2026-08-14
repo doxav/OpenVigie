@@ -1,5 +1,12 @@
 # Journal des modifications
 
+## Non publié — clarification optique/PTZ et achèvement du MINIMAL sectoriel
+
+- `SIP-K675A-30X` est désormais appelé **bloc caméra zoom 30×** : il ne contient pas la tête Pan/Tilt.
+- `plan`, `doctor` et `ptz-test` respectent les secteurs déclarés.
+- `recommend()` n'ignore plus le budget d'usure PTZ.
+- Le préréglage `minimal` est effectivement migré vers 140°/4 positions/8 km, conformément à l'intention 0.6.0.
+
 ## 0.6.1 — correctif de test (environnement conda/venv)
 
 `TestScriptDeployPackaging.test_sequence_de_paquetage_produit_un_paquet_importable`
@@ -46,9 +53,9 @@ leur numéro. Résultats notables, tous issus du calcul :
   grand-angle. C'est une architecture de levée de doute, pas d'extension de
   portée.
 
-Le tier MINIMAL est redéfini en conséquence : module PTZ sur secteur utile, à
-budget quasi constant (~574 $) mais **portée doublée** (8 km sur 140° au lieu de
-3,5 km en tentant 360°).
+Le tier MINIMAL est redéfini en conséquence : une caméra zoom montée sur
+tête Pan/Tilt couvre par défaut un secteur utile de 140° avec 4 positions à
+8 km. La mécanique Pan/Tilt est distincte du bloc caméra zoom.
 
 *Défaut trouvé en écrivant les tests :* une architecture pouvait être déclarée
 « couvrante » en balayant tout l'angle demandé sans jamais voir assez loin pour

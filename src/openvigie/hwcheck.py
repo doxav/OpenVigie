@@ -175,6 +175,58 @@ def check_focus_stability(frames: list[np.ndarray], max_drift: float = 0.15) -> 
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
+def check_sector_coverage(
+    views, sectors, max_gap_deg: float = 1.0, sample_step_deg: float = 0.5
+) -> CheckResult:
+    """Vérifie uniquement les secteurs déclarés, pas un 360° implicite."""
+    from .modules import total_span_deg
+
+    if not views or not sectors:
+        return CheckResult("couverture", "fail", None, "", "aucune vue ou aucun secteur")
+    missing = 0
+    for sector in sectors:
+        n = max(1, int(round(sector.span_deg / sample_step_deg)))
+        for i in range(n + 1):
+            az = (sector.start_deg + sector.span_deg * i / n) % 360.0
+            seen = any(
+                abs((az - v.azimuth_deg + 180.0) % 360.0 - 180.0)
+                <= v.hfov_deg / 2.0 + max_gap_deg
+                for v in views
+            )
+            if not seen:
+                missing += 1
+    span = total_span_deg(sectors)
+    if missing:
+        return CheckResult(
+            "couverture", "fail", round(missing * sample_step_deg, 1), "deg",
+            f"{missing} échantillon(s) non couverts dans les {span:.0f}° utiles",
+        )
+    return CheckResult(
+        "couverture", "ok", 0.0, "deg",
+        f"{len(views)} vues, {span:.0f}° de secteurs utiles couverts",
+    )
+
+
+def check_sector_range_budget(views, sectors) -> CheckResult:
+    """Vérifie la portée de chaque vue contre l'objectif de son secteur."""
+    worst = None
+    for view in views:
+        targets = [s.target_plume_m for s in sectors if s.contains(view.azimuth_deg)]
+        target = min(targets) if targets else 30.0
+        ratio = view.min_plume_m / max(target, 1e-6)
+        item = (ratio, view, target)
+        if worst is None or item[0] > worst[0]:
+            worst = item
+    assert worst is not None
+    ratio, view, target = worst
+    status = "ok" if ratio <= 1.0 else ("warn" if ratio <= 1.6 else "fail")
+    msg = (
+        f"cas le plus contraignant : {view.min_plume_m:.0f} m à "
+        f"{view.target_range_m / 1000:.1f} km "
+        f"(objectif {target:.0f} m, champ {view.hfov_deg:.1f}°)"
+    )
+    return CheckResult("budget_portee", status, round(view.min_plume_m, 1), "m", msg)
+
 def check_coverage(views, max_gap_deg: float = 1.0) -> CheckResult:
     """Vérifie qu'il n'y a pas de secteur aveugle."""
     gaps = [g for g in coverage_gaps(views) if abs(g[1] - g[0]) > max_gap_deg]
@@ -414,28 +466,33 @@ def capabilities(cfg) -> dict[str, tuple[bool, str]]:
 
 def run_config_checks(cfg) -> list[CheckResult]:
     """Batterie de vérifications purement statiques, exécutable sans matériel."""
-    from .geometry import plan_uniform_ring
-
     sensor = cfg.optics.sensor_spec()
     lens = cfg.optics.lens_spec()
-    views = plan_uniform_ring(
-        sensor, lens, cfg.scan.n_views, cfg.scan.target_range_m, cfg.scan.overlap
-    )
+
+    if cfg.sectors:
+        from .modules import plan_sector_views
+        sectors = cfg.sector_list()
+        views = plan_sector_views(sectors, sensor, lens, cfg.scan.overlap)
+        coverage = check_sector_coverage(views, sectors)
+        range_budget = check_sector_range_budget(views, sectors)
+    else:
+        from .geometry import plan_uniform_ring
+        views = plan_uniform_ring(
+            sensor, lens, cfg.scan.n_views, cfg.scan.target_range_m, cfg.scan.overlap
+        )
+        coverage = check_coverage(views)
+        range_budget = check_range_budget(sensor, views[0].focal_mm, cfg.scan.target_range_m)
+
     return [
         check_lens_compat(lens, cfg.optics.focal_mm),
-        check_coverage(views),
-        check_scan_budget(
-            cfg.scan.n_views, cfg.scan.dwell_s, cfg.scan.settle_s, cfg.scan.mode == "ptz"
-        ),
-        check_range_budget(sensor, views[0].focal_mm, cfg.scan.target_range_m),
-        # AUDIT P0-05 : les contrôles de déployabilité font désormais partie du
-        # diagnostic standard, pas d'une option.
+        coverage,
+        check_scan_budget(len(views), cfg.scan.dwell_s, cfg.scan.settle_s, cfg.scan.mode == "ptz"),
+        range_budget,
         check_platform_readiness(cfg),
         check_detector_backend(cfg),
         check_operating_mode(cfg),
         check_masks(cfg),
     ]
-
 
 def summarize(results: list[CheckResult]) -> dict:
     counts = {"ok": 0, "warn": 0, "fail": 0, "skip": 0}

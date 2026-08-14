@@ -102,7 +102,7 @@ avant tout dimensionnement.
 ## Ce que le portage débloquerait
 
 Un seul portage couvre **toutes** les cartes du même capteur : modules fixes
-5 MP, bloc 30×, et la sensibilité NIR sur les deux. C'est la raison pour
+5 MP, blocs caméra zoom 20×/30×, et la sensibilité NIR sur les deux. Le portage concerne le capteur/ISP; il ne fournit ni ne pilote la mécanique Pan/Tilt. C'est la raison pour
 laquelle IMX675 + HI3516AV300 reste la cible prioritaire plutôt qu'IMX678 ou
 IMX664, qui demanderaient chacun leur propre portage pour un gain moindre.
 

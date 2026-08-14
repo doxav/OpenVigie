@@ -66,9 +66,12 @@ IMX675 = SensorSpec("IMX675", 2592, 1944, 2.0)  # 1/2.8", 5 MP  — STARVIS 2, p
 IMX678 = SensorSpec("IMX678", 3840, 2160, 2.0)  # 1/1.8", 8 MP  — STARVIS 2, portage requis
 IMX585 = SensorSpec("IMX585", 3856, 2180, 2.9)  # 1/1.2", 8 MP  — STARVIS 2, portage requis
 
-LENS_27135 = LensSpec(2.7, 13.5)  # objectif motorisé des modules fixes
-LENS_30X = LensSpec(4.8, 144.0)   # bloc 30x (à vérifier sur fiche constructeur)
-LENS_3611 = LensSpec(3.6, 11.0)   # module 8 MP K678A
+LENS_27135 = LensSpec(2.7, 13.5)  # zoom motorisé documenté pour SIP-K675A
+LENS_0550 = LensSpec(5.0, 50.0)    # zoom motorisé documenté pour SIP-K675A
+# Ne pas déduire une plage focale absolue d'un ratio commercial « 20× » ou
+# « 30× ». Ces blocs doivent être configurés à partir de leur fiche exacte ou
+# d'une mesure HFOV; le ratio seul ne donne ni f_min ni f_max.
+LENS_3611 = LensSpec(3.6, 11.0)    # module 8 MP K678A
 
 SENSORS = {
     s.name: s

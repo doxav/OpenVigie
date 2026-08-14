@@ -20,6 +20,7 @@ from openvigie.modules import (
     evaluate_fixed_ring,
     evaluate_ptz_sector,
     evaluate_wide_plus_ptz,
+    plan_sector_views,
     recommend,
     sectors_from_viewshed,
     total_span_deg,
@@ -84,6 +85,11 @@ class TestSecteurs:
         a = Sector("a", 0, 90, 8000)
         b = Sector("b", 180, 270, 8000)
         assert total_span_deg([a, b]) == pytest.approx(180.0, abs=1.0)
+
+    def test_ouverture_cumulee_ne_compte_pas_les_bornes_deux_fois(self):
+        assert total_span_deg(
+            [Sector("s", 170, 310, 8000)]
+        ) == pytest.approx(140.0)
 
     def test_ouverture_cumulee_vide(self):
         assert total_span_deg([]) == 0.0
@@ -176,8 +182,8 @@ class TestCriteresAcceptationIssue1:
         evaluations = compare_architectures(self._sectors(), IMX675, LENS_27135)
         assert len(evaluations) == 3
         noms = {e.name for e in evaluations}
-        assert "Anneau de caméras fixes" in noms
-        assert "Module PTZ par secteur" in noms
+        assert "Anneau fixe + PTZ de confirmation" in noms
+        assert "Caméra zoom + tête PTZ par secteur" in noms
         assert "Grand-angle + PTZ à la demande" in noms
 
 
@@ -202,6 +208,14 @@ class TestArbitragesArchitecturaux:
         wide = evaluate_wide_plus_ptz(sectors, IMX675, LENS_27135)
         fixe = evaluate_fixed_ring(sectors, IMX675, LENS_27135)
         assert wide.detection_range_m < fixe.detection_range_m
+
+    def test_plan_sectoriel_8km_a_des_hypotheses_coherentes(self):
+        """À 8 km / panache 30 m : 90° exige 3 vues, 140° en exige 4."""
+        v90 = plan_sector_views([Sector("s", 0, 90, 8_000)], IMX675, LENS_27135)
+        v140 = plan_sector_views([Sector("s", 0, 140, 8_000)], IMX675, LENS_27135)
+        assert len(v90) == 3
+        assert len(v140) == 4
+        assert v140[0].focal_mm == pytest.approx(6.4, abs=0.05)
 
     def test_le_grand_angle_effondre_lusure_ptz(self):
         sectors = [Sector("s", 170, 310, 8_000)]
@@ -234,6 +248,12 @@ class TestArbitragesArchitecturaux:
         for fn in (evaluate_fixed_ring, evaluate_ptz_sector, evaluate_wide_plus_ptz):
             with pytest.raises(ValueError, match="aucun secteur"):
                 fn([], IMX675, LENS_27135)
+
+    def test_recommandation_ecarte_la_ronde_ptz_usee(self):
+        evaluations = compare_architectures([Sector("s", 170, 310, 8_000)], IMX675, LENS_27135)
+        r = recommend(evaluations)
+        assert "Caméra zoom + tête PTZ par secteur" not in r
+        assert "PTZ de confirmation" in r
 
     def test_recommandation_motivee(self):
         r = recommend(compare_architectures([Sector("s", 170, 260, 8000)], IMX675, LENS_27135))

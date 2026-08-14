@@ -61,8 +61,9 @@ classique et le calcul externe, et le signale.
 
 **Un seul portage débloque toutes les cartes du même capteur.** C'est pourquoi
 la recommandation est de porter **IMX675 + HI3516AV300** en priorité : cette
-combinaison couvre à la fois les modules fixes 5 MP, le bloc 30×, le NNIE et la
-sensibilité NIR STARVIS 2.
+combinaison couvre à la fois les modules fixes 5 MP et les blocs caméra zoom
+20×/30×, le NNIE et la sensibilité NIR STARVIS 2. Un bloc caméra zoom ne
+comprend pas la mécanique Pan/Tilt : celle-ci est un équipement séparé.
 
 En attendant, la variante IMX335 + HI3516AV300 est utilisable telle quelle et
 permet de développer et valider l'intégralité du logiciel.

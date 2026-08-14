@@ -166,7 +166,7 @@ attendus et un harnais de validation exécutable par qui dispose d'une carte
 (`openvigie sensor-validate`). Voir [docs/PORTAGE_IMX675.md](docs/PORTAGE_IMX675.md).
 
 Recommandation : **porter IMX675 + HI3516AV300 en priorité** — cette seule
-combinaison couvre les modules fixes 5 MP, le bloc 30×, le NNIE et le NIR
+combinaison couvre les modules fixes 5 MP, les blocs caméra zoom 20×/30×, le NNIE et le NIR
 STARVIS 2, et un portage débloque toutes les cartes du même capteur. En
 attendant, **IMX335 + HI3516AV300 est opérationnel aujourd'hui** et permet de
 développer et valider l'intégralité du logiciel.
@@ -264,22 +264,21 @@ La probabilité du réseau ne déclenche **jamais** seule.
 | | MINIMAL | MEDIUM | FULL |
 |---|---|---|---|
 | Rôle | campagne de mesure | surveillance autonome | surveillance opérationnelle |
-| Caméras | 1 module + 1 bloc 30× | **8 modules fixes** + 30× | **14 modules fixes** + 30× |
+| Caméras | 1 IMX675 2,7–13,5 mm sur tête pan/tilt + témoin IMX335 | **8 modules fixes** + caméra zoom PTZ de confirmation | **14 modules fixes** + caméra zoom PTZ de confirmation |
 | Calcul | dans la caméra | dans les caméras | calculateur externe |
-| **Portée honnête** | **3,5 km** | **6,5 km** | **11,5 km** |
-| Revisite | 1,6 min | 0,17 min | 0,1 min |
-| Usure | ~1,7 M mvts/an | **0** | **0** |
-| Coût modules | ~567 $ | ~2 370 $ | ~3 694 $ |
+| **Portée honnête** | **8,0 km sur le secteur 140° par défaut** | **6,5 km** | **11,5 km** |
+| Revisite | 1,27 min | 0,17 min | 0,1 min |
+| Usure de ronde | ~1,66 M mvts/an si balayage continu | **0** pour la détection | **0** pour la détection |
+| Coût indicatif du banc/site | ~360 $ | ~2 370 $ | ~3 694 $ |
 
-Corrections que le code a imposées à la nomenclature initiale : 4 presets
-laissent des secteurs aveugles (→ 5), et 8 caméras ne tiennent pas 12 km (→ 14,
-+516 $ — à comparer au coût d'un feu détecté 40 minutes trop tard).
+Le préréglage `minimal` est désormais réellement sectoriel : 140°/4 positions/8 km. Ce secteur d'exemple doit être remplacé par le viewshed réel.
 
-**Le tier MEDIUM en pratique.** Il suppose que le CNN tourne dans la caméra via
-NNIE. La chaîne d'outils HiSilicon est figée depuis ~2020 : opérateurs
-restreints, INT8/INT16, pas de LSTM. Le dépôt gère ce risque en dur — le backend
-`nnie` **se replie sur `classical`** si le binaire d'inférence est absent, et la
-dégradation apparaît dans les logs et le battement de cœur, jamais en silence.
+**Un bloc `SIP-K675A-30X` n'est pas une tête PTZ.** C'est une caméra à zoom
+optique destinée à être montée sur une mécanique Pan/Tilt. Le
+`SIP-K675A-27135` possède déjà un zoom motorisé 2,7–13,5 mm, suffisant pour les
+focales de détection prévues par les tiers MEDIUM/FULL. Le 20×/30× apporte
+surtout une plage téléobjectif pour la confirmation; sans Pan/Tilt, il ne change
+pas la direction observée.
 
 Détail, variantes et nomenclature annotée : [docs/HARDWARE.md](docs/HARDWARE.md).
 

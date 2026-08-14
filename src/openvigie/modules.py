@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from .geometry import (
     LensSpec,
     SensorSpec,
+    ViewPlan,
     hfov_deg,
     max_range_m,
     min_detectable_width_m,
@@ -99,22 +100,33 @@ class Sector:
 
 
 def total_span_deg(sectors: list[Sector]) -> float:
-    """Ouverture cumulée, en fusionnant les recouvrements.
-
-    Deux secteurs qui se chevauchent ne comptent qu'une fois : c'est la surface
-    angulaire réellement à couvrir, pas la somme des déclarations.
-    """
+    """Ouverture cumulée exacte, en fusionnant les recouvrements circulaires."""
     if not sectors:
         return 0.0
-    # Échantillonnage au demi-degré : suffisant pour un budget de conception,
-    # et immunisé contre les cas tordus de franchissement du nord.
-    covered = set()
-    for s in sectors:
-        n = int(s.span_deg * 2)
-        for i in range(n + 1):
-            covered.add(round((s.start_deg + i * 0.5) % 360.0, 1))
-    return min(len(covered) * 0.5, 360.0)
 
+    intervals: list[tuple[float, float]] = []
+    for sector in sectors:
+        span = sector.span_deg
+        if span >= 360.0 - 1e-9:
+            return 360.0
+
+        start_deg = sector.start_deg % 360.0
+        end_deg = start_deg + span
+        if end_deg <= 360.0:
+            intervals.append((start_deg, end_deg))
+        else:
+            intervals.append((start_deg, 360.0))
+            intervals.append((0.0, end_deg - 360.0))
+
+    intervals.sort()
+    merged: list[list[float]] = []
+    for start_deg, end_deg in intervals:
+        if not merged or start_deg > merged[-1][1] + 1e-9:
+            merged.append([start_deg, end_deg])
+        else:
+            merged[-1][1] = max(merged[-1][1], end_deg)
+
+    return min(sum(end_deg - start_deg for start_deg, end_deg in merged), 360.0)
 
 def sectors_from_viewshed(
     ranges: dict[float, float],
@@ -160,6 +172,41 @@ def sectors_from_viewshed(
     return out
 
 
+def plan_sector_views(
+    sectors: list[Sector],
+    sensor: SensorSpec,
+    lens: LensSpec,
+    overlap: float = 0.15,
+    prefix: str = "V",
+) -> list[ViewPlan]:
+    """Construit les vues physiques nécessaires pour les secteurs déclarés."""
+    if not sectors:
+        raise ValueError("aucun secteur à couvrir")
+    views: list[ViewPlan] = []
+    index = 0
+    for sector in sectors:
+        needed_gsd = sector.target_plume_m / 12.0
+        needed_focal = (
+            (sensor.pixel_um * 1e-3) * sector.max_range_m / needed_gsd
+            if needed_gsd > 0 else lens.f_min_mm
+        )
+        focal = lens.clamp(needed_focal)
+        hfov = hfov_deg(sensor, focal)
+        n = _presets_for_span(sector.span_deg, hfov, overlap)
+        step = sector.span_deg / n
+        for i in range(n):
+            az = (sector.start_deg + (i + 0.5) * step) % 360.0
+            views.append(ViewPlan(
+                view_id=f"{prefix}{index:02d}",
+                azimuth_deg=az,
+                focal_mm=focal,
+                hfov_deg=hfov,
+                target_range_m=sector.max_range_m,
+                min_plume_m=min_detectable_width_m(sensor, focal, sector.max_range_m),
+            ))
+            index += 1
+    return views
+
 # --------------------------------------------------------------------------- #
 # Coûts (indicatifs, pour comparer des architectures entre elles)
 # --------------------------------------------------------------------------- #
@@ -175,7 +222,7 @@ class CostModel:
 
     fixed_module_usd: float = 86.0        # module fixe 5 MP, objectif motorisé
     wide_module_usd: float = 86.0         # même module, réglé grand-angle
-    ptz_block_usd: float = 308.0          # bloc 30x
+    ptz_block_usd: float = 308.0          # bloc caméra zoom 30×, sans tête pan/tilt
     ptz_head_usd: float = 1_453.0         # tête motorisée industrielle
     enclosure_per_camera_usd: float = 100.0
     compute_usd: float = 249.0
@@ -273,6 +320,8 @@ def evaluate_fixed_ring(
     cost: CostModel | None = None,
     overlap: float = 0.15,
     add_confirmation_ptz: bool = False,
+    candidates_per_day: float = 12.0,
+    confirmation_moves: int = 2,
 ) -> ArchitectureEvaluation:
     """N caméras fixes couvrant les secteurs utiles, sans balayage.
 
@@ -305,17 +354,24 @@ def evaluate_fixed_ring(
 
     total = n * (cost.fixed_module_usd + cost.enclosure_per_camera_usd)
     n_ptz = 0
+    ptz_moves = 0.0
+    name = "Anneau de caméras fixes"
     if add_confirmation_ptz:
         n_ptz = 1
         total += cost.ptz_block_usd + cost.ptz_head_usd + cost.enclosure_per_camera_usd
-        notes.append("PTZ de confirmation incluse (aucun balayage : mouvements sur alerte seulement)")
+        ptz_moves = candidates_per_day * confirmation_moves * 365.25
+        name = "Anneau fixe + PTZ de confirmation"
+        notes.append(
+            "PTZ de confirmation incluse (aucun balayage : mouvements sur "
+            f"candidat, ~{ptz_moves:,.0f}/an)"
+        )
 
     return ArchitectureEvaluation(
-        name="Anneau de caméras fixes",
+        name=name,
         n_fixed_cameras=n, n_ptz=n_ptz, n_presets=0,
         hfov_deg=hfov, focal_mm=focal,
         detection_range_m=max_range_m(sensor, focal, target_plume),
-        revisit_s=0.0, ptz_moves_per_year=0.0,
+        revisit_s=0.0, ptz_moves_per_year=ptz_moves,
         cost_usd=total, covered_span_deg=min(n * hfov * (1 - overlap), 360.0),
         required_span_deg=span, required_range_m=target_range, notes=notes,
     )
@@ -374,7 +430,7 @@ def evaluate_ptz_sector(
         )
 
     return ArchitectureEvaluation(
-        name="Module PTZ par secteur",
+        name="Caméra zoom + tête PTZ par secteur",
         n_fixed_cameras=0, n_ptz=1, n_presets=visits_per_cycle,
         hfov_deg=hfov, focal_mm=focal,
         detection_range_m=max_range_m(sensor, focal, target_plume),
@@ -462,9 +518,18 @@ def compare_architectures(
     ]
 
 
-def recommend(evaluations: list[ArchitectureEvaluation], max_latency_s: float = 120.0) -> str:
-    """Formule une recommandation motivée, ou dit pourquoi aucune ne convient."""
-    viable = [e for e in evaluations if e.is_viable and e.mean_latency_s <= max_latency_s]
+def recommend(
+    evaluations: list[ArchitectureEvaluation],
+    max_latency_s: float = 120.0,
+    max_ptz_moves_per_year: float = 500_000.0,
+) -> str:
+    """Formule une recommandation en tenant aussi compte de l'usure PTZ."""
+    viable = [
+        e for e in evaluations
+        if e.is_viable
+        and e.mean_latency_s <= max_latency_s
+        and e.ptz_moves_per_year <= max_ptz_moves_per_year
+    ]
     if not viable:
         angulaire = [e for e in evaluations if e.covers_all]
         if angulaire and not any(e.meets_range for e in angulaire):
@@ -472,6 +537,16 @@ def recommend(evaluations: list[ArchitectureEvaluation], max_latency_s: float = 
                 "Aucune architecture n'atteint la portée demandée sur ces secteurs, "
                 "même en couvrant tout l'angle : un objectif plus long, un capteur "
                 "plus défini, ou une portée visée plus modeste sont nécessaires."
+            )
+        range_ok = [e for e in evaluations if e.is_viable]
+        latency_ok = [e for e in range_ok if e.mean_latency_s <= max_latency_s]
+        if latency_ok and all(
+            e.ptz_moves_per_year > max_ptz_moves_per_year for e in latency_ok
+        ):
+            return (
+                "Aucune architecture ne tient le budget d'usure PTZ : préférer "
+                "des caméras fixes pour la détection, réduire les mouvements, ou "
+                "utiliser la PTZ uniquement à la demande."
             )
         return (
             "Aucune architecture ne tient la contrainte de latence sur ces secteurs : "
