@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import signal
 import sys
 from pathlib import Path
+from threading import Event
 
 from . import __version__
 from .config import TIERS, load_site_config, tier_defaults
@@ -678,6 +681,89 @@ def cmd_init(args) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    """Lance l'agent de site jusqu'à un signal d'arrêt ou une borne explicite."""
+    from .agent import ContinuousAgent, validate_agent_config
+
+    try:
+        cfg = _load(args)
+        validate_agent_config(cfg)
+    except (OSError, TypeError, ValueError) as exc:
+        print(f"openvigie run: configuration invalide: {exc}", file=sys.stderr)
+        return 2
+
+    base_dir = Path(args.base_dir) if args.base_dir else (
+        Path(args.config).expanduser().resolve().parent if args.config else Path.cwd()
+    )
+    topology = {
+        "site_id": cfg.site_id,
+        "scan_mode": cfg.scan.mode,
+        "operating_mode": cfg.operating.mode,
+        "base_dir": str(base_dir),
+        "cameras": [
+            {
+                "camera_id": camera.camera_id,
+                "source": camera.source,
+                "views": [view.view_id for view in camera.views],
+                "ptz_backend": camera.ptz_backend,
+            }
+            for camera in cfg.agent.cameras
+        ],
+    }
+    if args.dry_run:
+        if args.json:
+            print(json.dumps(topology, indent=2, ensure_ascii=False))
+        else:
+            n_views = sum(len(camera.views) for camera in cfg.agent.cameras)
+            print(
+                f"Configuration valide — site {cfg.site_id}, {len(cfg.agent.cameras)} "
+                f"caméra(s), {n_views} vue(s), mode {cfg.operating.mode}"
+            )
+        return 0
+
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper()),
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    )
+    stopper = Event()
+    previous_handlers: dict[signal.Signals, object] = {}
+
+    def request_stop(_signum: int, _frame: object) -> None:
+        """Transforme SIGINT/SIGTERM en arrêt coopératif de la boucle."""
+        stopper.set()
+
+    try:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signum] = signal.getsignal(signum)
+            signal.signal(signum, request_stop)
+        agent = ContinuousAgent(cfg, base_dir=base_dir)
+        summary = agent.run(
+            stop_event=stopper,
+            once=args.once,
+            max_frames=args.max_frames,
+        )
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        print(f"openvigie run: démarrage impossible: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+
+    if args.json:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+    else:
+        pipeline = summary["pipeline"]
+        assert isinstance(pipeline, dict)
+        print(
+            f"Agent arrêté ({summary['reason']}) — {summary['frames_processed']} image(s), "
+            f"{pipeline.get('alerts', '?')} alerte(s), "
+            f"{summary['source_failures']} erreur(s) source"
+        )
+    if (args.once or args.max_frames is not None) and int(summary["frames_processed"]) == 0:
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="openvigie", description="Détection précoce de feux de forêt depuis points hauts")
     p.add_argument("--version", action="version", version=f"OpenVigie {__version__}")
@@ -803,6 +889,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--seed", type=int, default=3)
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_calibrate)
+
+    sp = common(sub.add_parser("run", help="agent continu d'acquisition et de détection"))
+    sp.add_argument("--base-dir", help="base des chemins de données (défaut : dossier du YAML)")
+    sp.add_argument("--dry-run", action="store_true", help="valider sans ouvrir les équipements")
+    sp.add_argument("--once", action="store_true", help="une tentative par vue puis arrêt")
+    sp.add_argument("--max-frames", type=int, help="arrêt après N images traitées")
+    sp.add_argument("--log-level", choices=("debug", "info", "warning", "error"), default="info")
+    sp.add_argument("--json", action="store_true", help="résumé final JSON")
+    sp.set_defaults(func=cmd_run)
 
     sp = sub.add_parser("init", help="générer une configuration de site")
     sp.add_argument("tier", choices=TIERS)

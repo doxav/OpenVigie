@@ -11,10 +11,11 @@ from __future__ import annotations
 import socket
 import time
 from dataclasses import dataclass, field
+from importlib.util import find_spec
 
 import numpy as np
 
-from .compat import sobel_energy, to_gray
+from .compat import HAS_CV2, sobel_energy, to_gray
 from .geometry import (
     LensSpec,
     SensorSpec,
@@ -441,6 +442,34 @@ def capabilities(cfg) -> dict[str, tuple[bool, str]]:
     except Exception:
         backend, backend_ok = "classical", False
 
+    agent_ok = False
+    if not cfg.agent.cameras:
+        agent_detail = "implémenté ; agent.cameras doit décrire la topologie du site"
+    elif not HAS_CV2:
+        agent_detail = "OpenCV absent : installer openvigie[agent]"
+    else:
+        missing: list[str] = []
+        if any(
+            camera.source == "snapshot" or camera.ptz_backend == "cgi"
+            for camera in cfg.agent.cameras
+        ) and find_spec("requests") is None:
+            missing.append("requests")
+        if any(camera.ptz_backend == "pelco_d" for camera in cfg.agent.cameras) and (
+            find_spec("serial") is None
+        ):
+            missing.append("pyserial")
+        if missing:
+            agent_detail = f"dépendances absentes : {', '.join(missing)}"
+        else:
+            try:
+                from .agent import validate_agent_config
+
+                validate_agent_config(cfg)
+                agent_ok = True
+                agent_detail = "configuration prête pour openvigie run"
+            except (TypeError, ValueError) as exc:
+                agent_detail = f"configuration incomplète : {exc}"
+
     return {
         "acquisition JPEG": (True, "sources fichier, snapshot HTTP, RTSP"),
         "recalage": (True, "corrélation de phase, translation"),
@@ -452,7 +481,10 @@ def capabilities(cfg) -> dict[str, tuple[bool, str]]:
         "segmentation du candidat": (False, "non raccordée au pipeline (roadmap v0.6)"),
         "confirmation PTZ exécutée": (False, "tâches calculées, exécution absente (roadmap v0.6)"),
         "capture automatique des preuves": (False, "champs présents, capture absente (roadmap v0.4)"),
-        "agent continu": (False, "openvigie run non implémenté (roadmap v0.4)"),
+        "agent continu": (
+            agent_ok,
+            agent_detail,
+        ),
         "masques de confidentialité": (bool(cfg.masks), "appliqués à l'acquisition si déclarés"),
         "file hors ligne durable": (True, "outbox persistante avec dead letters"),
         "transport mTLS": (False, "jeton porteur seulement (roadmap v0.6)"),

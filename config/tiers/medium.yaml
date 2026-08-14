@@ -35,6 +35,13 @@ calibration:
   drift_pitch_tolerance_deg: 0.15
   fit_clock_offset: true
   fit_altitude_offset: false
+agent:
+  alert_log_path: data/alerts.jsonl
+  flush_interval_s: 15.0
+  retry_initial_s: 2.0
+  retry_max_s: 120.0
+  status_interval_s: 60.0
+  cameras: []
 optics:
   sensor: IMX675
   focal_mm: 6.25

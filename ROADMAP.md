@@ -28,7 +28,7 @@ opérationnelle. Trois colonnes valent mieux qu'une case :
 | Confirmation PTZ | 🟡 | ❌ | ❌ |
 | Modèle temporel, segmentation | ❌ | ❌ | ❌ |
 | Backend NNIE | 🟡 | ❌ | ❌ |
-| Agent continu | ❌ | ❌ | ❌ |
+| Agent continu | ✅ | ✅ | ❌ |
 
 `openvigie capabilities` produit ce constat pour une configuration donnée.
 
@@ -74,7 +74,7 @@ justesse sont livrées en 0.4.0, voir CHANGELOG.md).*
 
 | Élément | Pourquoi | Difficulté |
 |---|---|---|
-| ⬜ **Agent de site** (`openvigie run`) | Aujourd'hui les briques existent mais aucun démon ne tourne en continu : boucle d'acquisition, ordonnancement, flush, heartbeat, redémarrage propre | moyenne |
+| ✅ **Agent de site** (`openvigie run`) | Boucle multi-caméras fixe/PTZ, reprise avec backoff, flush, heartbeat, signaux et fermeture propre ; spécification et limites dans `docs/AGENT_CONTINU.md` | livrée, validation terrain à faire |
 | ⬜ **Cache MNT par vue** | Le ray-casting est fait à l'installation ; il manque la persistance sur disque et l'invalidation quand un preset bouge | faible |
 | 🟡 **Preuves d'alerte** | Les vignettes et séquences sont référencées dans l'événement mais pas encore capturées et stockées automatiquement | faible |
 | ⬜ **Chargeur MNT depuis GeoTIFF** | Script de conversion des dalles IGN vers le format `.npy` + `.json`, hors passerelle | faible |

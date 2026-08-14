@@ -8,9 +8,12 @@ que les mesures faites en phase 1 restent comparables.
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 try:  # pragma: no cover
     import yaml
@@ -23,6 +26,7 @@ from .platform import board_readiness, get_capabilities, sensor_driver_status
 from .scoring import DecisionConfig, FusionModel
 
 TIERS = ("minimal", "medium", "full")
+ConfigT = TypeVar("ConfigT")
 
 
 @dataclass
@@ -210,6 +214,141 @@ class PlatformConfig:
         return get_capabilities(None if self.soc == "auto" else self.soc)
 
 
+def _validate_agent_url(label: str, value: str, schemes: tuple[str, ...]) -> None:
+    """Valide une URL d'équipement sans autoriser de secret embarqué."""
+    parsed = urlsplit(value)
+    if parsed.scheme not in schemes or not parsed.hostname:
+        expected = ", ".join(schemes)
+        raise ValueError(f"{label} doit être une URL {expected} complète")
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError(f"{label} contient un port invalide") from exc
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError(
+            f"{label} ne doit pas contenir d'identifiant : utiliser user et password_env"
+        )
+
+
+@dataclass
+class AgentViewConfig:
+    """Vue logique alimentée par une caméra fixe ou un preset PTZ."""
+
+    view_id: str = ""
+    azimuth_deg: float = 0.0
+    focal_mm: float | None = None
+    preset: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.view_id.strip():
+            raise ValueError("agent.cameras[].views[].view_id ne doit pas être vide")
+        if not math.isfinite(self.azimuth_deg) or not 0.0 <= self.azimuth_deg < 360.0:
+            raise ValueError("agent.cameras[].views[].azimuth_deg doit être dans [0, 360[")
+        if self.focal_mm is not None and (
+            not math.isfinite(self.focal_mm) or self.focal_mm <= 0
+        ):
+            raise ValueError("agent.cameras[].views[].focal_mm doit être > 0")
+        if self.preset is not None and not 1 <= self.preset <= 255:
+            raise ValueError("agent.cameras[].views[].preset doit être dans [1, 255]")
+
+
+@dataclass
+class AgentCameraConfig:
+    """Source physique et vues exploitées par l'agent de site."""
+
+    camera_id: str = ""
+    source: str = "snapshot"       # snapshot | rtsp | files
+    url: str = ""
+    directory: str = ""
+    pattern: str = "*.jpg"
+    user: str = "admin"
+    password_env: str = ""
+    timeout_s: float = 10.0
+    frame_interval_s: float = 30.0
+    ptz_backend: str = "none"      # none | cgi | pelco_d | simulated
+    ptz_url: str = ""
+    serial_port: str = "/dev/ttyS1"
+    baudrate: int = 2400
+    address: int = 1
+    views: list[AgentViewConfig | dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.camera_id.strip():
+            raise ValueError("agent.cameras[].camera_id ne doit pas être vide")
+        if self.source not in ("snapshot", "rtsp", "files"):
+            raise ValueError("agent.cameras[].source doit être snapshot, rtsp ou files")
+        if self.source == "snapshot":
+            _validate_agent_url("agent.cameras[].url", self.url, ("http", "https"))
+        elif self.source == "rtsp":
+            _validate_agent_url("agent.cameras[].url", self.url, ("rtsp", "rtsps"))
+        elif not self.directory:
+            raise ValueError("agent.cameras[].directory est requis pour source='files'")
+        if not self.pattern:
+            raise ValueError("agent.cameras[].pattern ne doit pas être vide")
+        if self.password_env and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.password_env):
+            raise ValueError("agent.cameras[].password_env n'est pas un nom de variable valide")
+        if not math.isfinite(self.timeout_s) or self.timeout_s <= 0:
+            raise ValueError("agent.cameras[].timeout_s doit être > 0")
+        if not math.isfinite(self.frame_interval_s) or self.frame_interval_s <= 0:
+            raise ValueError("agent.cameras[].frame_interval_s doit être > 0")
+        if self.ptz_backend not in ("none", "cgi", "pelco_d", "simulated"):
+            raise ValueError(
+                "agent.cameras[].ptz_backend doit être none, cgi, pelco_d ou simulated"
+            )
+        if self.ptz_backend == "cgi":
+            _validate_agent_url("agent.cameras[].ptz_url", self.ptz_url, ("http", "https"))
+        if self.ptz_backend == "pelco_d":
+            if not self.serial_port:
+                raise ValueError("agent.cameras[].serial_port est requis pour pelco_d")
+            if self.baudrate <= 0:
+                raise ValueError("agent.cameras[].baudrate doit être > 0")
+            if not 1 <= self.address <= 255:
+                raise ValueError("agent.cameras[].address doit être dans [1, 255]")
+        self.views = [
+            item if isinstance(item, AgentViewConfig) else _build(AgentViewConfig, item)
+            for item in self.views
+        ]
+        if not self.views:
+            raise ValueError(f"agent.cameras[{self.camera_id!r}].views ne doit pas être vide")
+        view_ids = [view.view_id for view in self.views]
+        if len(view_ids) != len(set(view_ids)):
+            raise ValueError(f"agent.cameras[{self.camera_id!r}] contient des view_id dupliqués")
+
+
+@dataclass
+class AgentConfig:
+    """Cadences et topologie de la commande continue ``openvigie run``."""
+
+    alert_log_path: str = "data/alerts.jsonl"
+    flush_interval_s: float = 15.0
+    retry_initial_s: float = 2.0
+    retry_max_s: float = 120.0
+    status_interval_s: float = 60.0
+    cameras: list[AgentCameraConfig | dict[str, Any]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.alert_log_path:
+            raise ValueError("agent.alert_log_path ne doit pas être vide")
+        if not math.isfinite(self.flush_interval_s) or self.flush_interval_s <= 0:
+            raise ValueError("agent.flush_interval_s doit être > 0")
+        if not math.isfinite(self.retry_initial_s) or self.retry_initial_s <= 0:
+            raise ValueError("agent.retry_initial_s doit être > 0")
+        if not math.isfinite(self.retry_max_s) or self.retry_max_s < self.retry_initial_s:
+            raise ValueError("agent.retry_max_s doit être >= agent.retry_initial_s")
+        if not math.isfinite(self.status_interval_s) or self.status_interval_s <= 0:
+            raise ValueError("agent.status_interval_s doit être > 0")
+        self.cameras = [
+            item if isinstance(item, AgentCameraConfig) else _build(AgentCameraConfig, item)
+            for item in self.cameras
+        ]
+        camera_ids = [camera.camera_id for camera in self.cameras]
+        if len(camera_ids) != len(set(camera_ids)):
+            raise ValueError("agent.cameras contient des camera_id dupliqués")
+        view_ids = [view.view_id for camera in self.cameras for view in camera.views]
+        if len(view_ids) != len(set(view_ids)):
+            raise ValueError("agent.cameras contient des view_id dupliqués entre caméras")
+
+
 @dataclass
 class SiteConfig:
     """Configuration complète d'un site."""
@@ -230,6 +369,7 @@ class SiteConfig:
     platform: PlatformConfig = field(default_factory=PlatformConfig)
     network: NetworkConfig = field(default_factory=NetworkConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
     optics: OpticsConfig = field(default_factory=OpticsConfig)
     scan: ScanConfig = field(default_factory=ScanConfig)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
@@ -306,9 +446,11 @@ class SiteConfig:
         return asdict(self)
 
 
-def _build(cls, data: dict | None):
-    if not data:
+def _build(cls: type[ConfigT], data: dict[str, Any] | None) -> ConfigT:
+    if data is None or data == {}:
         return cls()
+    if not isinstance(data, dict):
+        raise ValueError(f"{cls.__name__} doit être un objet YAML")
     known = set(cls.__dataclass_fields__)
     unknown = set(data) - known
     if unknown:
@@ -335,6 +477,7 @@ def site_config_from_dict(data: dict) -> SiteConfig:
         "platform": PlatformConfig,
         "network": NetworkConfig,
         "calibration": CalibrationConfig,
+        "agent": AgentConfig,
         "optics": OpticsConfig,
         "scan": ScanConfig,
         "pipeline": PipelineConfig,

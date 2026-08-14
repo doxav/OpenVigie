@@ -10,25 +10,29 @@ openvigie plan   -c config/tiers/medium.yaml   # combien de caméras, quelle por
 openvigie doctor -c config/tiers/medium.yaml   # le dimensionnement tient-il debout
 openvigie viewshed --synthetic                 # ce que le relief laisse voir
 openvigie selftest -t medium --mode cloud      # un nuage ne doit jamais alerter
+openvigie run -c site.yaml --dry-run           # valider l'agent sans ouvrir les caméras
 ```
 
-> **660 tests**, exécutés dans deux modes : avec OpenCV/SciPy, et **en NumPy pur**
+> **698 tests**, exécutés dans deux modes : avec OpenCV/SciPy, et **en NumPy pur**
 > — ce qui garantit que le cœur tourne sur une carte caméra.
 
 > [!IMPORTANT]
 > **Statut : alpha de recherche et d'ingénierie.** OpenVigie est une boîte à outils
 > pour *concevoir, dimensionner, simuler et instrumenter* un réseau de caméras de
-> détection. Ce n'est pas encore un système de surveillance autonome : il n'y a
-> pas d'agent continu (`openvigie run`), pas de modèle de détection livré, pas de
-> validation sur fumées réelles, et aucune performance de détection n'a été
-> mesurée sur le terrain.
+> détection. L'agent continu `openvigie run` relie acquisition, pipeline,
+> reprise caméra, PTZ, outbox et heartbeat. Cela n'en fait pas encore un système
+> de surveillance de feux opérationnel : les modèles doivent être fine-tunés,
+> pas de validation sur fumées réelles, et aucune performance de détection n'a
+> été mesurée sur le terrain.
 >
 > **Utilisable aujourd'hui** : étude optique et de couverture, vérification de
 > configuration, simulation du pipeline, préparation de MNT et d'étalonnage,
-> campagne de collecte de négatifs, développement d'algorithmes et de pilotes.
+> campagne continue de collecte et de détection en modes `measure`/`shadow`,
+> développement d'algorithmes et de pilotes.
 >
-> **Pas encore** : fonctionnement 24 h/24 sans surveillance, alerte
-> opérationnelle, liaison à un service de secours.
+> **Pas encore** : fonctionnement 24 h/24 *validé sur le terrain*, alerte
+> opérationnelle, liaison à un service de secours. L'autonomie logicielle est
+> disponible ; sa fiabilité matérielle et scientifique reste à mesurer.
 >
 > `openvigie capabilities` affiche, pour une configuration donnée, ce qui fonctionne
 > réellement. La [roadmap](ROADMAP.md) distingue trois niveaux : code de
@@ -585,7 +589,7 @@ mensuel, seuils recalibrés par site après 3–4 semaines.
 
 | Phase | Durée | Contenu | Critère de sortie |
 |---|---|---|---|
-| **1. Mesure** | 2–3 mois | `site_survey.py` puis `record_baseline.py` 24/24. **Aucune détection active.** | portée réelle mesurée + 30 jours de négatifs du site |
+| **1. Mesure** | 2–3 mois | `site_survey.py`, puis `openvigie run` en mode `measure` et `record_baseline.py` 24/24. **Aucun événement ni alerte transmis.** | portée réelle mesurée + 30 jours de négatifs du site |
 | **2. Détection** | 3–4 mois | détecteur finetuné, seuil calibré sur FP/jour et non sur F1 | < 1 FP/caméra/jour, détection sur brûlages dirigés |
 | **3. Réseau** | 6+ mois | 2ᵉ tour, triangulation, portail de validation, boucle d'apprentissage | adoption par les opérateurs |
 
@@ -610,7 +614,12 @@ git clone https://github.com/doxav/OpenVigie.git && cd OpenVigie
 ```
 
 Le cœur ne dépend que de **NumPy et PyYAML**. OpenCV et SciPy sont optionnels et
-ne font qu'accélérer.
+ne font qu'accélérer. L'acquisition JPEG/RTSP de l'agent demande l'extra
+`agent` :
+
+```bash
+pip install -e ".[agent]"
+```
 
 ```bash
 # dimensionnement
@@ -624,12 +633,33 @@ openvigie capabilities -c site.yaml       # ce qui fonctionne VRAIMENT
 openvigie schema                          openvigie outbox --dir data/outbox
 openvigie calibrate -t full --simulate    # étalonnage par trafic aérien
 openvigie majestic --host 192.168.1.64    openvigie selftest -t medium --mode cloud
+openvigie run -c site.yaml --dry-run      # topologie + secrets, sans I/O caméra
 
 # terrain
 ./scripts/openipc_deploy.sh <ip> --apply
 python scripts/site_survey.py --config site.yaml --snapshot-url http://<ip>/image.jpg
 python scripts/record_baseline.py --camera V00=http://<ip>/image.jpg --days 30
+openvigie run -c site.yaml                # jusqu'à SIGINT/SIGTERM
 ```
+
+Le bloc `agent:` de `site.yaml` associe explicitement chaque caméra à ses vues,
+azimuts et éventuels presets PTZ. Les mots de passe sont lus depuis les variables
+nommées par `password_env`, jamais depuis le YAML. Les chemins de données sont
+résolus relativement à `site.yaml`, ce qui évite qu'un lancement systemd et un
+lancement SSH écrivent deux états différents. Après une erreur, chaque caméra a
+son propre backoff exponentiel ; un arrêt ferme les sources et le PTZ puis tente
+un dernier flush de l'outbox. Les alertes sont journalisées localement dans
+`agent.alert_log_path`, y compris en mode `shadow` où elles ne sont jamais mises
+en file de transmission.
+
+```bash
+openvigie run -c site.yaml --once --json   # recette : une tentative par vue
+openvigie run -c site.yaml --max-frames 8       # test borné
+```
+
+Le schéma complet, les règles fixe/PTZ, l'analyse de faisabilité, les matrices de
+pannes et les limites assumées du MVP sont dans
+[docs/AGENT_CONTINU.md](docs/AGENT_CONTINU.md).
 
 ```bash
 make test-all      # avec ET sans OpenCV/SciPy — ce que doit passer toute contribution
@@ -656,6 +686,7 @@ make test-all      # avec ET sans OpenCV/SciPy — ce que doit passer toute cont
 | `modules` | secteurs utiles, comparaison d'architectures |
 | `survey` | relevé d'installation, amorce de calibration |
 | `ptz` | trames Pelco-D, ordonnanceur, avertissements d'usure |
+| `agent` | boucle continue, backoff caméra, PTZ, maintenance et arrêt propre |
 | `alerting`, `pipeline`, `config`, `sources`, `hwcheck`, `cli`, `compat` | — |
 
 ---

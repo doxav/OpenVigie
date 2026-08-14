@@ -502,8 +502,15 @@ class TestP0_03_Capacites:
 
         caps = capabilities(tier_defaults("full"))
         for absent in ("modèle temporel", "segmentation du candidat",
-                       "confirmation PTZ exécutée", "agent continu"):
+                       "confirmation PTZ exécutée"):
             assert caps[absent][0] is False, absent
+
+    def test_agent_continu_est_implemente_mais_exige_une_topologie(self):
+        from openvigie.hwcheck import capabilities
+
+        available, detail = capabilities(tier_defaults("full"))["agent continu"]
+        assert available is False
+        assert "agent.cameras" in detail
 
     def test_le_backend_effectif_est_annonce(self):
         from openvigie.hwcheck import capabilities
@@ -515,7 +522,8 @@ class TestP0_03_Capacites:
 
         assert main(["capabilities", "-t", "full"]) == 0
         out = capsys.readouterr().out
-        assert "agent continu" in out and "✗" in out
+        agent_line = next(line for line in out.splitlines() if "agent continu" in line)
+        assert "✗" in agent_line and "agent.cameras" in agent_line
 
     def test_cli_capabilities_json(self, capsys):
         from openvigie.cli import main

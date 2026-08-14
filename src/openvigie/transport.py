@@ -453,6 +453,11 @@ class HealthMonitor:
             note=note,
         )
 
+    def record_failure(self, camera_id: str, note: str) -> None:
+        """Marque une acquisition en échec sans falsifier la dernière image reçue."""
+        state = self._cameras.setdefault(camera_id, {"times": []})
+        state.update(image_status="fail", background_ready=False, note=note)
+
     def camera_health(self) -> list[CameraHealth]:
         now = self.clock()
         out: list[CameraHealth] = []

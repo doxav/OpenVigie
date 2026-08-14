@@ -23,6 +23,8 @@ import numpy as np
 
 
 class FrameSource(ABC):
+    finite = False
+
     @abstractmethod
     def read(self) -> tuple[np.ndarray, dt.datetime] | None:
         ...
@@ -34,13 +36,15 @@ class FrameSource(ABC):
 class FileSequenceSource(FrameSource):
     """Séquence d'images sur disque, triée par nom."""
 
+    finite = True
+
     def __init__(self, directory: str | Path, pattern: str = "*.jpg", start: dt.datetime | None = None, period_s: float = 30.0) -> None:
         self.paths = sorted(Path(directory).glob(pattern))
         self.index = 0
         self.start = start or dt.datetime(2026, 8, 1, 12, 0, 0, tzinfo=dt.timezone.utc)
         self.period_s = period_s
 
-    def read(self):
+    def read(self) -> tuple[np.ndarray, dt.datetime] | None:
         from .compat import HAS_CV2, cv2
 
         if self.index >= len(self.paths):
@@ -59,7 +63,14 @@ class FileSequenceSource(FrameSource):
 class SnapshotHttpSource(FrameSource):  # pragma: no cover - I/O réseau
     """Snapshot HTTP (chemin recommandé : pas de recompression vidéo)."""
 
-    def __init__(self, url: str, user: str = "admin", password: str = "", period_s: float = 30.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        user: str = "admin",
+        password: str = "",
+        period_s: float = 30.0,
+        timeout_s: float = 10.0,
+    ) -> None:
         try:
             import requests
         except ImportError as exc:
@@ -68,13 +79,14 @@ class SnapshotHttpSource(FrameSource):  # pragma: no cover - I/O réseau
         self.url = url
         self.auth = (user, password)
         self.period_s = period_s
+        self.timeout_s = timeout_s
 
-    def read(self):
+    def read(self) -> tuple[np.ndarray, dt.datetime] | None:
         from .compat import HAS_CV2, cv2
 
         if not HAS_CV2:
             raise RuntimeError("SnapshotHttpSource requiert OpenCV pour décoder")
-        r = self._requests.get(self.url, auth=self.auth, timeout=10)
+        r = self._requests.get(self.url, auth=self.auth, timeout=self.timeout_s)
         if r.status_code != 200:
             return None
         buf = np.frombuffer(r.content, dtype=np.uint8)
@@ -95,7 +107,7 @@ class RtspSource(FrameSource):  # pragma: no cover - I/O réseau
         self.cap = cv2.VideoCapture(url)
         self._cv2 = cv2
 
-    def read(self):
+    def read(self) -> tuple[np.ndarray, dt.datetime] | None:
         ok, frame = self.cap.read()
         if not ok:
             return None
@@ -170,6 +182,8 @@ class SyntheticScene:
 class SyntheticSource(FrameSource):
     """Séquence synthétique : ``n_background`` images stables puis un panache croissant."""
 
+    finite = True
+
     def __init__(
         self, scene: SyntheticScene | None = None, n_background: int = 6, n_plume: int = 6,
         period_s: float = 30.0, start: dt.datetime | None = None,
@@ -184,7 +198,7 @@ class SyntheticSource(FrameSource):
         self.mode = mode
         self.i = 0
 
-    def read(self):
+    def read(self) -> tuple[np.ndarray, dt.datetime] | None:
         if self.i >= self.n_background + self.n_plume:
             return None
         ts = self.start + dt.timedelta(seconds=self.i * self.period_s)

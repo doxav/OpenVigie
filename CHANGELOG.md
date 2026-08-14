@@ -1,7 +1,17 @@
 # Journal des modifications
 
-## Non publié — clarification optique/PTZ et achèvement du MINIMAL sectoriel
+## Non publié — agent continu et achèvement du MINIMAL sectoriel
 
+- **Agent de site continu.** Nouvelle commande `openvigie run` : topologie
+  caméra/vue strictement configurée, sources snapshot/RTSP/fichiers, ronde PTZ
+  après stabilisation, reprise indépendante avec backoff exponentiel, flush de
+  l'outbox, heartbeat, arrêt `SIGINT`/`SIGTERM` et fermeture des ressources.
+  `--dry-run`, `--once`, `--max-frames` et le résumé JSON rendent la recette
+  reproductible. Les alertes `shadow` ont un journal local durable dédié et les
+  secrets caméra restent dans l'environnement.
+- L'analyse de faisabilité, l'arbitrage Pareto, le contrat de configuration, la
+  machine d'état, la matrice de défaillances et les critères d'acceptation sont
+  spécifiés dans `docs/AGENT_CONTINU.md`.
 - `SIP-K675A-30X` est désormais appelé **bloc caméra zoom 30×** : il ne contient pas la tête Pan/Tilt.
 - `plan`, `doctor` et `ptz-test` respectent les secteurs déclarés.
 - `recommend()` n'ignore plus le budget d'usure PTZ.
