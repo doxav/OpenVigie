@@ -3,6 +3,87 @@
 Le projet suit un versionnement sémantique à partir de la 1.0. Avant, les
 versions mineures peuvent introduire des ruptures ; elles sont listées ici.
 
+## 0.6.0 — secteurs utiles, relevé d'installation, kit de portage
+
+### Issue #1 — la planification ne suppose plus une couverture 360°
+
+Nouveau module `modules` et commande `openvigie sectors`. L'unité de
+dimensionnement devient le **secteur angulaire utile**, déduit du viewshed ou
+déclaré dans la configuration (`sectors:`). Trois architectures sont évaluées
+sur les mêmes secteurs : anneau fixe, module PTZ, grand-angle + PTZ à la
+demande.
+
+Les huit critères d'acceptation de l'issue sont couverts par des tests portant
+leur numéro. Résultats notables, tous issus du calcul :
+
+- **le balayage PTZ, inexploitable à 360° (21 positions, > 5 min de cycle),
+  redevient raisonnable sur 140° utiles (4 positions, 1,3 min)** — c'est
+  l'argument central de l'issue, et il se vérifie ;
+- **la tête PTZ (~1 450 $) domine tout budget PTZ** : un anneau de quatre
+  modules fixes coûte 744 $ contre 1 861 $ pour un module PTZ, sans latence ni
+  usure. Le module PTZ se défend par le nombre d'appareils à installer et à
+  maintenir, pas par son prix ;
+- **grand-angle + PTZ ne voit pas plus loin** : la portée est celle du
+  grand-angle. C'est une architecture de levée de doute, pas d'extension de
+  portée.
+
+Le tier MINIMAL est redéfini en conséquence : module PTZ sur secteur utile, à
+budget quasi constant (~574 $) mais **portée doublée** (8 km sur 140° au lieu de
+3,5 km en tentant 360°).
+
+*Défaut trouvé en écrivant les tests :* une architecture pouvait être déclarée
+« couvrante » en balayant tout l'angle demandé sans jamais voir assez loin pour
+y détecter quoi que ce soit. Nouvelles propriétés `meets_range` et `is_viable`.
+
+### Issue #2 — relevé d'installation comme amorce de calibration
+
+Nouveau module `survey` et commande `openvigie survey`. Un relevé au smartphone
+à la pose fournit une pose de départ, avec une répartition d'incertitudes très
+inégale et c'est ce qui la rend utile :
+
+| Grandeur | Incertitude | Pourquoi |
+|---|---|---|
+| Assiette, roulis | ±0,5° | l'accéléromètre mesure la gravité, que rien ne perturbe |
+| Azimut | ±15° sur pylône treillis | le magnétomètre subit l'acier |
+
+Soit **un facteur trente entre les deux axes**, exposé par `gate_axes_px()`.
+Exactement complémentaire de l'étalonnage par trafic aérien, qui excelle sur
+l'azimut. `calibrate_from_survey()` enchaîne les deux et signale les
+incohérences : déclinaison oubliée, signe du tilt inversé.
+
+**La déclinaison magnétique est obligatoire** — le module refuse de l'approximer
+plutôt que de produire un azimut biaisé de 1 à 3°.
+
+*Défaut trouvé en écrivant les tests :* quand le relevé est très faux et la
+fenêtre serrée, l'appariement ne trouve rien, l'ajustement renvoie la pose
+initiale inchangée, et l'écart mesuré est donc nul — un relevé aberrant était
+rapporté comme « cohérent ». Un étalonnage insuffisant est désormais signalé
+comme non concluant.
+
+*Second défaut :* une position hors emprise du MNT renvoyait `NaN` et passait
+silencieusement le contrôle de cohérence d'altitude.
+
+### Portage IMX675 — ce qui est livré, et ce qui ne l'est pas
+
+**Le portage n'est pas fait.** Il demande la table de registres du capteur
+(documentation Sony sous accord de confidentialité), la carte elle-même, et des
+essais — un capteur mal initialisé ne renvoie pas une erreur mais une image.
+Publier un pilote d'apparence plausible avec des registres reconstitués serait
+exactement l'artefact convaincant et faux que ce projet refuse.
+
+Ce qui est livré : [docs/PORTAGE_IMX675.md](docs/PORTAGE_IMX675.md) (procédure,
+paramètres attendus, quatre garanties à vérifier) et la commande
+`openvigie sensor-validate`, exécutable par qui dispose d'une carte —
+résolution effective, cadence et gigue, champ mesuré contre champ calculé.
+
+`openvigie hw --soc hi3516av300 --sensor IMX675` continue de répondre
+`porting_required`, et c'est la bonne réponse.
+
+### Divers
+
+- URL du dépôt renseignées (`doxav/OpenVigie`).
+- 95 nouveaux tests (660 au total), couverture maintenue.
+
 ## 0.5.0 — renommage en profondeur vigie → OpenVigie
 
 ### Rupture

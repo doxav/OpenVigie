@@ -38,36 +38,126 @@ en continu à partir d'amers fixes, et une alerte lointaine par temps brumeux do
 
 ---
 
-## 1. MINIMAL — campagne de mesure
+## 0 bis. Dimensionner par secteurs, pas par tour d'horizon
+
+*Ajouté en 0.6.0 en réponse à l'[issue #1](https://github.com/doxav/OpenVigie/issues/1).*
+
+Le tableau ci-dessus déduit un nombre de caméras d'une couverture 360°. C'est
+rarement ce que le terrain demande : une direction peut être masquée par une
+crête, dépourvue de végétation, ou impossible à couvrir depuis le point de
+montage disponible.
+
+```bash
+openvigie sectors -c site.yaml --from-viewshed data/mnt/site.npy
+```
+
+L'unité de dimensionnement devient le **secteur angulaire utile**. Et cela
+change la conclusion, parce que le coût d'une ronde PTZ n'est pas linéaire :
+
+| Ouverture utile | Positions PTZ | Cycle | Latence moyenne |
+|---|---|---|---|
+| 90° | 2 | 0,6 min | 19 s |
+| 140° | 4 | 1,3 min | 38 s |
+| 250° | 9 | 2,9 min | 1,4 min |
+| 360° | 21 (à 3× de zoom) | > 5 min | > 2,5 min |
+
+**Le balayage PTZ, inexploitable à 360°, redevient raisonnable sur un secteur
+restreint.** C'est le fond de l'issue #1, et c'est ce qui justifie de revoir le
+tier MINIMAL ci-dessous.
+
+### Ce que coûte réellement chaque architecture
+
+Sur 140° utiles à 8 km, panache de 30 m :
+
+| Architecture | Appareils | Portée | Latence | Mouvements/an | Matériel |
+|---|---|---|---|---|---|
+| Anneau fixe seul | 4 fixes | 8,0 km | **0** | **0** | **744 $** |
+| Anneau fixe + PTZ de confirmation | 4 fixes + 1 PTZ | 8,0 km | 0 | ~10 k | 2 605 $ |
+| Module PTZ seul | **1 PTZ** | 8,0 km | 1,3 min | **1,66 M** | 1 861 $ |
+| Grand-angle + PTZ à la demande | 2 fixes + 1 PTZ | **3,4 km** | 0 | ~9 k | 2 233 $ |
+
+Trois enseignements que le calcul impose et que l'intuition contredit :
+
+1. **La tête PTZ (~1 450 $) domine tout budget PTZ.** Un anneau de quatre
+   modules fixes coûte 744 $ — moins de la moitié d'un module PTZ, avec zéro
+   latence et zéro usure. Sur le seul critère du matériel, l'anneau fixe gagne.
+2. **Mais le matériel n'est pas le coût dominant d'un site réel.** Mât, génie
+   civil, câblage, main-d'œuvre en hauteur et maintenance ne figurent pas dans
+   ce tableau et dépendent du **nombre d'appareils à installer**, pas de leur
+   prix. Un module unique contre quatre change cet arbitrage — c'est l'argument
+   sérieux en faveur de l'option PTZ, et il n'est pas dans la colonne « prix ».
+3. **Le grand-angle + PTZ ne voit pas plus loin.** La portée est fixée par le
+   grand-angle (3,4 km), pas par la PTZ : on n'envoie la PTZ que sur ce que le
+   grand-angle a déjà repéré. C'est une architecture de **levée de doute**, pas
+   d'extension de portée. L'erreur d'intuition inverse est fréquente.
+
+---
+
+## 1. MINIMAL — module de mesure sur secteur
+
+*Redéfini en 0.6.0 : ce niveau est désormais un **module couvrant un secteur
+utile**, non une tentative de couverture 360° au rabais
+([issue #1](https://github.com/doxav/OpenVigie/issues/1)).*
 
 **Objectif : mesurer, pas détecter.** Ce niveau ne doit pas être mis en service
-comme système d'alerte. Il sert à répondre aux questions qu'aucun calcul ne
-remplace : quelle est la portée réelle par temps réel, le mât vibre-t-il, la tête
-revient-elle sur son preset, le hublot s'encrasse-t-il, à quoi ressemblent les
-faux candidats de *ce* site.
+comme système d'alerte — le mode d'exploitation par défaut est d'ailleurs
+`measure`, qui n'émet aucun événement. Il sert à répondre aux questions
+qu'aucun calcul ne remplace : quelle est la portée réelle par temps réel, le mât
+vibre-t-il, la tête revient-elle sur son preset, le hublot s'encrasse-t-il, à
+quoi ressemblent les faux candidats de *ce* site.
 
 | Poste | Référence | Rôle | Statut OpenIPC | Prix indicatif |
 |---|---|---|---|---|
-| Module de détection | SIP-K675G6 (IMX675 + GK7605V100) | mesurer la fumée faible et le NIR STARVIS 2 | SoC ✅ / pilote IMX675 à porter | ~91 $ |
-| Bloc de confirmation | SIP-K675A-30X (IMX675 + HI3516AV300) | zoom 30×, levée de doute | SoC ✅ / pilote à porter | ~306–309 $ |
-| **Carte témoin** | **SIP-K335G6 (IMX335 + GK7605V100)** | **développer toute la chaîne OpenIPC pendant le portage** | **✅ prêt** | ~74 $ |
+| Bloc PTZ | SIP-K675A-30X (IMX675 + HI3516AV300) | module de mesure, 2 à 4 positions sur le secteur utile | SoC ✅ / pilote IMX675 à porter | ~307 $ |
 | Tête pan/tilt | double axe vis sans fin, DIY | prototype uniquement | — | ~93 $ |
-| | | | **Total** | **≈ 567 $** |
+| **Carte témoin** | **SIP-K335G6 (IMX335 + GK7605V100)** | **développer toute la chaîne OpenIPC pendant le portage** | **✅ prêt** | ~74 $ |
+| Caisson, PoE, câblage | — | — | — | ~100 $ |
+| | | | **Total** | **≈ 574 $** |
 
-**Corrections par rapport à la nomenclature initiale :**
+### Ce que ce niveau permet réellement
 
-- Le nombre de presets passe de 4 à **5**. Quatre positions au grand-angle
-  laissent 4 secteurs aveugles : `openvigie doctor` le refuse (`FAIL couverture`).
-- La portée annoncée passe de 6 km à **3,5 km**. À 6 km, le grand-angle ne
-  détecte qu'un panache de 53 m — soit un feu déjà installé.
-- L'usure est de **~1,7 million de mouvements/an**. La tête à 93 $ ne tiendra pas
-  une saison en balayage continu. C'est acceptable ici parce que ce niveau est
-  une campagne de mesure, pas un service continu — mais il faut le dire.
+| Ouverture utile | Positions | Cycle | Portée (panache 30 m) |
+|---|---|---|---|
+| 90° | 2 | 0,6 min | 8,0 km |
+| 140° | 4 | 1,3 min | 8,0 km |
 
-La carte témoin IMX335 n'est pas un accessoire : elle permet de développer tout
-le logiciel pendant que le pilote STARVIS 2 est porté, et de comparer directement
-STARVIS 1 et STARVIS 2 sur la même scène, ce qui est la seule façon honnête de
-savoir si le surcoût STARVIS 2 se justifie sur votre terrain.
+Contre 3,5 km auparavant, quand ce même budget tentait de couvrir 360° au
+grand-angle. **Se restreindre au secteur utile double la portée à matériel
+constant** — c'est tout l'argument de l'issue #1.
+
+### Ce qui reste vrai, et qu'il faut dire
+
+- **L'usure demeure ~1,7 million de mouvements/an.** La tête à 93 $ ne tiendra
+  pas une saison en balayage continu. Acceptable pour une campagne de mesure de
+  quelques mois, pas pour un service permanent — et c'est précisément pourquoi
+  ce niveau n'est pas un système d'alerte.
+- **Un anneau de modules fixes coûterait moins cher** (744 $ pour 140° à 8 km,
+  contre 1 861 $ pour un module PTZ complet avec tête industrielle). Le module
+  PTZ se justifie ici par le nombre d'appareils à installer et à maintenir sur
+  un mât — un seul contre quatre — et parce qu'une campagne de mesure a besoin
+  de zoom pour caractériser ce qu'elle observe.
+- **La carte témoin IMX335 n'est pas un accessoire.** Elle permet de développer
+  tout le logiciel pendant que le pilote STARVIS 2 est porté, et de comparer
+  STARVIS 1 et STARVIS 2 sur la même scène — la seule façon honnête de savoir
+  si le surcoût STARVIS 2 se justifie sur votre terrain. Voir
+  [PORTAGE_IMX675.md](PORTAGE_IMX675.md).
+
+### Relevé d'installation
+
+Un relevé au smartphone à la pose ([issue #2](https://github.com/doxav/OpenVigie/issues/2))
+donne une pose de départ pour quelques minutes de travail :
+
+```bash
+openvigie survey --lat 44.0 --lon 3.0 --altitude 500 --height 40 \
+                 --azimuth 85 --declination 2.1 --tilt 1.4 --mounting steel_tower
+```
+
+Il mesure **très bien l'assiette** (±0,5°, accéléromètre — rien sur un pylône ne
+perturbe la gravité) et **mal l'azimut** (±15° sur pylône treillis, le
+magnétomètre subissant l'acier). C'est exactement complémentaire de
+l'étalonnage par trafic aérien, qui excelle sur l'azimut. Et l'assiette est la
+grandeur qui commande la portée estimée : 0,5° d'erreur valent 44 % d'erreur de
+distance à 5 km.
 
 ---
 
@@ -177,8 +267,11 @@ un site qu'on ne remonte pas voir.
 
 | Question | Réponse |
 |---|---|
-| Je veux commencer sans attendre le portage STARVIS 2 | Variante A du tier MEDIUM (IMX335 + HI3516AV300), 100 % OpenIPC aujourd'hui |
+| Je veux commencer sans attendre le portage STARVIS 2 | Variante A du tier MEDIUM (IMX335 + HI3516AV300), 100 % OpenIPC aujourd'hui. Le portage IMX675 **n'est pas fait** : voir [PORTAGE_IMX675.md](PORTAGE_IMX675.md) |
 | Je veux un seul capteur partout | Porter **IMX675 + HI3516AV300** : il couvre les fixes, le bloc 30×, le NNIE et le NIR |
-| PTZ qui balaye ou caméras fixes ? | **Fixes pour détecter, PTZ pour confirmer.** Ce n'est pas un compromis, c'est mieux sur tous les critères sauf le prix initial |
+| PTZ qui balaye ou caméras fixes ? | **Ça dépend de l'ouverture utile.** À 360°, les fixes gagnent nettement (revisite nulle, usure nulle, et moins cher). Sur un secteur restreint, un module PTZ redevient défendable — surtout parce qu'il y a un seul appareil à installer et à maintenir sur le mât |
+| Combien de secteurs faut-il couvrir ? | Ce que le viewshed déclare exploitable, pas 360° par principe : `openvigie sectors --from-viewshed` |
+| Faut-il un relevé à l'installation ? | Oui : quelques minutes au smartphone donnent une assiette à ±0,5°, et l'assiette commande la portée estimée. `openvigie survey` |
+| Le grand-angle + PTZ voit-il plus loin ? | **Non.** La portée est celle du grand-angle ; la PTZ ne fait que lever le doute sur ce qu'il a déjà vu |
 | Calcul embarqué ou externe ? | Externe si un faux négatif coûte cher. Le surcoût réel est de ~250 $, pas d'un ordre de grandeur |
 | Quelle portée annoncer ? | Celle que renvoie `openvigie doctor`, mesurée ensuite en phase 1. Pas celle de la fiche capteur |

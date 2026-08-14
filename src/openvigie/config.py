@@ -45,6 +45,32 @@ class OpticsConfig:
 
 
 @dataclass
+class SectorConfig:
+    """Un secteur angulaire réellement utile (issue #1).
+
+    Déclarer des secteurs dispense de la couverture 360° implicite : un site
+    dont le nord est bouché par une crête n'a aucune raison d'y dépenser des
+    caméras.
+    """
+
+    name: str = "S00"
+    start_deg: float = 0.0
+    end_deg: float = 360.0
+    max_range_m: float = 8_000.0
+    priority: float = 1.0
+    target_plume_m: float = 30.0
+
+    def to_sector(self):
+        from .modules import Sector
+
+        return Sector(
+            name=self.name, start_deg=self.start_deg, end_deg=self.end_deg,
+            max_range_m=self.max_range_m, priority=self.priority,
+            target_plume_m=self.target_plume_m,
+        )
+
+
+@dataclass
 class ScanConfig:
     mode: str = "fixed"          # fixed | ptz
     n_views: int = 8
@@ -211,6 +237,9 @@ class SiteConfig:
     decision: DecisionConfig = field(default_factory=DecisionConfig)
     fusion: dict[str, Any] = field(default_factory=lambda: FusionModel().as_dict())
     dem_path: str = ""
+    survey_path: str = ""
+    # Secteurs utiles. Vide = couverture 360° (comportement historique).
+    sectors: list[dict] = field(default_factory=list)
     # AUDIT P0-21 (corrigé 0.4.0) : ces masques étaient déclarés dans la
     # configuration et présentés comme une protection dans la documentation,
     # mais aucun code ne les lisait. Ils sont désormais appliqués à l'image dès
@@ -225,6 +254,15 @@ class SiteConfig:
             raise ValueError(f"tier inconnu '{self.tier}' (attendus: {TIERS})")
         if not -90 <= self.latitude <= 90 or not -180 <= self.longitude <= 180:
             raise ValueError("coordonnées du site invalides")
+
+    def sector_list(self):
+        """Secteurs déclarés, ou un unique secteur 360° par défaut."""
+        from .modules import Sector
+
+        if not self.sectors:
+            return [Sector(name="360", start_deg=0.0, end_deg=360.0,
+                           max_range_m=self.scan.target_range_m)]
+        return [SectorConfig(**s).to_sector() for s in self.sectors]
 
     def site(self):
         """Emplacement de la caméra, au sens du module d'étalonnage."""

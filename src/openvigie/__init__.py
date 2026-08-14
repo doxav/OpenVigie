@@ -5,7 +5,7 @@ réglementaire de son installation (RGPD/vidéoprotection, AI Act, autorisations
 locales) : voir docs/RESPONSABILITE.md.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __license__ = "Apache-2.0"
 
 from .config import SiteConfig, load_site_config, tier_defaults  # noqa: E402

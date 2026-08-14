@@ -306,6 +306,74 @@ def check_masks(cfg) -> CheckResult:
     return CheckResult("confidentialite", "ok", float(n), "zones", f"{n} zone(s) masquée(s)")
 
 
+def check_sensor_resolution(frame, sensor) -> CheckResult:
+    """La résolution livrée correspond-elle au capteur déclaré ?
+
+    Premier contrôle d'un portage : un pilote peut fonctionner tout en livrant
+    une image rognée ou sous-échantillonnée. Tout le budget optique — donc la
+    portée annoncée — repose sur le nombre de pixels réellement disponibles.
+    """
+    from .compat import to_gray
+
+    h, w = to_gray(frame).shape
+    if (w, h) == (sensor.width_px, sensor.height_px):
+        return CheckResult("capteur_resolution", "ok", float(w * h / 1e6), "MP",
+                           f"{w}×{h} conforme à {sensor.name}")
+    ratio = (w * h) / (sensor.width_px * sensor.height_px)
+    return CheckResult(
+        "capteur_resolution", "fail", round(w * h / 1e6, 2), "MP",
+        f"{w}×{h} au lieu de {sensor.width_px}×{sensor.height_px} attendus pour "
+        f"{sensor.name} ({ratio:.0%} des pixels) : le budget de portée est faux d'autant",
+    )
+
+
+def check_frame_interval(timestamps: list[float], expected_fps: float,
+                         max_jitter_ratio: float = 0.25) -> CheckResult:
+    """Régularité de la cadence.
+
+    Les features temporelles — croissance en m²/s, ascendance en m/s — supposent
+    un intervalle connu entre images. Une cadence instable ne se voit pas à
+    l'image mais fausse toutes les vitesses mesurées.
+    """
+    if len(timestamps) < 4:
+        return CheckResult("capteur_cadence", "skip", None, "", "au moins 4 images nécessaires")
+    intervals = np.diff(np.asarray(timestamps, dtype=float))
+    if np.any(intervals <= 0):
+        return CheckResult("capteur_cadence", "fail", None, "",
+                           "horodatages non monotones : cadence inexploitable")
+    mean = float(intervals.mean())
+    jitter = float(intervals.std() / mean) if mean > 0 else 1.0
+    measured_fps = 1.0 / mean
+    if abs(measured_fps - expected_fps) > 0.2 * expected_fps:
+        return CheckResult("capteur_cadence", "fail", round(measured_fps, 2), "ips",
+                           f"{measured_fps:.1f} ips mesurés contre {expected_fps:.0f} attendus")
+    status = "ok" if jitter <= max_jitter_ratio else "warn"
+    return CheckResult("capteur_cadence", status, round(measured_fps, 2), "ips",
+                       f"{measured_fps:.1f} ips, gigue {jitter:.0%}")
+
+
+def check_field_of_view(measured_hfov_deg: float, sensor, focal_mm: float,
+                        tolerance_ratio: float = 0.02) -> CheckResult:
+    """Champ mesuré contre champ calculé.
+
+    Contrôle le plus révélateur d'un portage : il vérifie d'un coup le pas de
+    pixel, la taille de matrice et la focale réelle. Un écart de quelques
+    pour cent signale une fiche technique inexacte — et se propage directement
+    en erreur de portée et de localisation.
+    """
+    from .geometry import hfov_deg
+
+    expected = hfov_deg(sensor, focal_mm)
+    ratio = abs(measured_hfov_deg - expected) / max(expected, 1e-6)
+    status = "ok" if ratio <= tolerance_ratio else ("warn" if ratio <= 3 * tolerance_ratio else "fail")
+    return CheckResult(
+        "capteur_champ", status, round(measured_hfov_deg, 2), "deg",
+        f"champ mesuré {measured_hfov_deg:.2f}° contre {expected:.2f}° calculés "
+        f"({ratio:.1%} d'écart) — au-delà de quelques pour cent, corriger le pas "
+        f"de pixel ou la focale dans geometry.py avant tout dimensionnement",
+    )
+
+
 def capabilities(cfg) -> dict[str, tuple[bool, str]]:
     """Ce que le site peut RÉELLEMENT faire, par opposition à ce qu'il déclare.
 

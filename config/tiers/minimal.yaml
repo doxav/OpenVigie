@@ -93,6 +93,8 @@ fusion:
     wind_coherence: 0.7
     cnn_score: 2.4
 dem_path: ''
+survey_path: ''
+sectors: []
 masks: {}
 wind_bearing_deg: null
 peers: []

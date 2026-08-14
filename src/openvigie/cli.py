@@ -206,6 +206,227 @@ def cmd_majestic(args) -> int:
     return 0
 
 
+def cmd_sectors(args) -> int:
+    """Secteurs utiles et comparaison d'architectures (issue #1).
+
+    La planification ne suppose plus une couverture 360° : elle part des
+    secteurs réellement exploitables et compare les architectures qui peuvent
+    les couvrir.
+    """
+    from .modules import CostModel, compare_architectures, recommend, sectors_from_viewshed, total_span_deg
+
+    cfg = _load(args)
+    sensor = cfg.optics.sensor_spec()
+    lens = cfg.optics.lens_spec()
+
+    if args.from_viewshed:
+        from .dem import DEM, synthetic_dem, viewshed_ranges
+
+        dem = synthetic_dem() if args.synthetic else DEM.from_npy(args.from_viewshed)
+        ranges = viewshed_ranges(dem, cfg.latitude, cfg.longitude,
+                                 cfg.optics.camera_height_m, n_sectors=args.viewshed_sectors,
+                                 step_m=100.0)
+        sectors = sectors_from_viewshed(ranges, min_useful_range_m=args.min_range)
+        if not sectors:
+            print("Aucun secteur utile : le relief masque tout au-delà de "
+                  f"{args.min_range:.0f} m depuis ce point.", file=sys.stderr)
+            return 1
+    else:
+        sectors = cfg.sector_list()
+
+    evaluations = compare_architectures(
+        sectors, sensor, lens, CostModel(), overlap=cfg.scan.overlap
+    )
+
+    if args.json:
+        print(json.dumps({
+            "sectors": [s.as_dict() for s in sectors],
+            "total_span_deg": round(total_span_deg(sectors), 1),
+            "architectures": [e.as_dict() for e in evaluations],
+            "recommendation": recommend(evaluations, args.max_latency * 60.0),
+        }, indent=2, ensure_ascii=False))
+        return 0
+
+    span = total_span_deg(sectors)
+    print(f"Secteurs utiles — {span:.0f}° au total "
+          f"({span / 360 * 100:.0f} % d'un tour d'horizon)\n")
+    for s in sectors:
+        print(f"  {s.name:<8} {s.start_deg:6.1f}° → {s.end_deg:6.1f}°  "
+              f"({s.span_deg:5.1f}°)  portée utile {s.max_range_m / 1000:5.1f} km")
+
+    print(f"\n{'Architecture':<32}{'cam.':>5}{'pos.':>6}{'portée':>9}{'latence':>10}"
+          f"{'mvts/an':>12}{'coût':>9}")
+    for e in evaluations:
+        d = e.as_dict()
+        flag = "" if d["covers_all"] else "  (couverture incomplète)"
+        print(f"{d['name']:<32}{d['cameras']:>5}{d['presets']:>6}"
+              f"{d['detection_range_km']:>7.1f}km{d['mean_latency_min']:>8.1f}min"
+              f"{d['ptz_moves_per_year']:>12,.0f}{d['cost_usd']:>8.0f}${flag}")
+    print()
+    for e in evaluations:
+        for note in e.notes:
+            print(f"  ! [{e.name}] {note}")
+    print(f"\nRecommandation : {recommend(evaluations, args.max_latency * 60.0)}")
+    print("Aucune architecture n'est meilleure dans l'absolu : le classement dépend\n"
+          "de ce qu'on accepte de perdre — portée, latence, usure ou coût.")
+    return 0
+
+
+def cmd_survey(args) -> int:
+    """Relevé d'installation : contrôle et pose déduite (issue #2)."""
+    from .survey import InstallationSurvey, SurveyError, check_survey
+
+    cfg = _load(args)
+    sensor = cfg.optics.sensor_spec()
+
+    if args.file:
+        try:
+            survey = InstallationSurvey.load(args.file)
+        except SurveyError as exc:
+            print(f"Relevé invalide : {exc}", file=sys.stderr)
+            return 1
+    else:
+        if args.declination is None:
+            print("--declination requis : un smartphone donne le nord MAGNÉTIQUE. "
+                  "Sans conversion, l'azimut est biaisé de 1 à 3° en France.", file=sys.stderr)
+            return 2
+        try:
+            survey = InstallationSurvey(
+                view_id=args.view, latitude=args.lat, longitude=args.lon,
+                ground_altitude_m=args.altitude, camera_height_m=args.height,
+                azimuth_magnetic_deg=args.azimuth, magnetic_declination_deg=args.declination,
+                tilt_deg=args.tilt, roll_deg=args.roll, mounting=args.mounting,
+            )
+        except SurveyError as exc:
+            print(f"Relevé invalide : {exc}", file=sys.stderr)
+            return 1
+
+    problems = check_survey(survey)
+    pose = survey.to_pose(sensor, cfg.optics.focal_mm, args.width, args.height_px)
+    axes = survey.gate_axes_px(sensor, cfg.optics.focal_mm, args.width)
+
+    if args.json:
+        print(json.dumps({
+            "survey": survey.as_dict(), "pose": pose.as_dict(),
+            "prior_sigma": survey.prior_sigma(), "gate_axes_px": axes,
+            "problems": problems,
+        }, indent=2, ensure_ascii=False))
+        return 0 if not problems else 1
+
+    print(f"Relevé — vue {survey.view_id}, montage '{survey.mounting}'\n")
+    print(f"  position       : {survey.latitude:.5f}, {survey.longitude:.5f}")
+    print(f"  altitude       : {survey.ground_altitude_m:.0f} m terrain "
+          f"+ {survey.camera_height_m:.0f} m mât = {survey.camera_altitude_m:.0f} m")
+    print(f"  azimut magnét. : {survey.azimuth_magnetic_deg:.1f}°")
+    print(f"  déclinaison    : {survey.magnetic_declination_deg:+.1f}°")
+    print(f"  → azimut vrai  : {survey.azimuth_true_deg:.1f}°  ± {survey.azimuth_sigma_deg:.1f}°")
+    print(f"  assiette       : {survey.tilt_deg:+.2f}°  ± {survey.tilt_sigma_deg:.1f}°  (accéléromètre)")
+    print(f"  roulis         : {survey.roll_deg:+.2f}°  ± {survey.roll_sigma_deg:.1f}°")
+    print(f"\n  fenêtre d'appariement : {axes['horizontal_px']:.0f} px horizontal, "
+          f"{axes['vertical_px']:.0f} px vertical")
+    ratio = axes["horizontal_px"] / max(axes["vertical_px"], 1e-6)
+    print(f"  soit un facteur {ratio:.0f} entre les deux axes — l'accéléromètre mesure la")
+    print("  gravité, que rien ne perturbe ; le magnétomètre mesure un champ que")
+    print("  l'acier d'un pylône déforme massivement.")
+    if problems:
+        print()
+        for p in problems:
+            print(f"  ! {p}")
+    print("\n  Ce relevé sert d'amorce : l'étalonnage par trafic aérien affine ensuite")
+    print("  l'azimut, que le relevé mesure justement mal. Voir docs/CALIBRATION.md.")
+    return 0 if not problems else 1
+
+
+def cmd_sensor_validate(args) -> int:
+    """Valide un portage capteur sur cible (voir docs/PORTAGE_IMX675.md).
+
+    À exécuter par qui dispose du matériel : c'est le seul moyen de vérifier
+    qu'un pilote fraîchement porté livre bien ce que le budget optique suppose.
+    """
+    import time
+
+    from .hwcheck import (
+        check_field_of_view,
+        check_frame_interval,
+        check_frame_sanity,
+        check_sensor_resolution,
+        summarize,
+    )
+    from .platform import sensor_driver_status
+
+    cfg = _load(args)
+    sensor = cfg.optics.sensor_spec()
+    results = []
+
+    driver = sensor_driver_status(args.sensor or cfg.optics.sensor)
+    results.append(CheckResultShim(
+        "pilote", "warn" if driver == "porting" else ("ok" if driver == "upstream" else "fail"),
+        f"pilote {args.sensor or cfg.optics.sensor} : {driver}",
+    ).to_result())
+
+    if args.simulate:
+        import numpy as np
+
+        frames = [np.random.default_rng(i).integers(0, 255, (sensor.height_px // 4,
+                                                             sensor.width_px // 4, 3),
+                                                    dtype=np.uint8) for i in range(6)]
+        timestamps = [i / args.expect_fps for i in range(6)]
+        if not args.json:
+            print("Mode simulé : la résolution sera signalée non conforme, c'est attendu.\n")
+    else:
+        if not args.snapshot_url and not args.host:
+            print("--host ou --snapshot-url requis (ou --simulate)", file=sys.stderr)
+            return 2
+        from .sources import SnapshotHttpSource
+
+        url = args.snapshot_url or f"http://{args.host}/image.jpg"
+        source = SnapshotHttpSource(url, args.user, args.password)
+        frames, timestamps = [], []
+        for _ in range(args.frames):
+            item = source.read()
+            if item is None:
+                break
+            frames.append(item[0])
+            timestamps.append(time.time())
+            time.sleep(1.0 / max(args.expect_fps, 1e-6))
+        if not frames:
+            print(f"aucune image obtenue depuis {url}", file=sys.stderr)
+            return 1
+
+    results.append(check_frame_sanity(frames[0]))
+    results.append(check_sensor_resolution(frames[0], sensor))
+    results.append(check_frame_interval(timestamps, args.expect_fps))
+    if args.measured_hfov is not None:
+        results.append(check_field_of_view(args.measured_hfov, sensor, cfg.optics.focal_mm))
+
+    if args.json:
+        print(json.dumps([{"name": r.name, "status": r.status, "value": r.value,
+                           "unit": r.unit, "message": r.message} for r in results],
+                         indent=2, ensure_ascii=False))
+    else:
+        for r in results:
+            print(r)
+        s = summarize(results)
+        print(f"\n{s['ok']} ok, {s['warn']} avertissements, {s['fail']} échecs")
+        if args.measured_hfov is None:
+            print("\nAstuce : --measured-hfov <deg> vérifie d'un coup le pas de pixel, la")
+            print("taille de matrice et la focale réelle. C'est le contrôle le plus")
+            print("révélateur d'un portage.")
+    return 0 if summarize(results)["fail"] == 0 else 1
+
+
+class CheckResultShim:
+    """Petit adaptateur pour produire un CheckResult sans dupliquer sa définition."""
+
+    def __init__(self, name: str, status: str, message: str) -> None:
+        self.name, self.status, self.message = name, status, message
+
+    def to_result(self):
+        from .hwcheck import CheckResult
+
+        return CheckResult(self.name, self.status, None, "", self.message)
+
+
 def cmd_capabilities(args) -> int:
     """Ce que le site peut RÉELLEMENT faire, par opposition à ce qu'il déclare.
 
@@ -476,6 +697,47 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--host", default="192.168.1.10")
     sp.add_argument("--user", default="root")
     sp.set_defaults(func=cmd_majestic)
+
+    sp = common(sub.add_parser("sectors", help="secteurs utiles et comparaison d'architectures"))
+    sp.add_argument("--from-viewshed", help="MNT .npy dont déduire les secteurs")
+    sp.add_argument("--synthetic", action="store_true", help="relief de démonstration")
+    sp.add_argument("--viewshed-sectors", type=int, default=36)
+    sp.add_argument("--min-range", type=float, default=2000.0,
+                    help="portée en deçà de laquelle une direction est jugée inutile")
+    sp.add_argument("--max-latency", type=float, default=2.0, help="latence moyenne acceptable (min)")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_sectors)
+
+    sp = common(sub.add_parser("survey", help="relevé d'installation GPS + orientation"))
+    sp.add_argument("--file", help="relevé JSON existant")
+    sp.add_argument("--view", default="V00")
+    sp.add_argument("--lat", type=float, default=44.0)
+    sp.add_argument("--lon", type=float, default=3.0)
+    sp.add_argument("--altitude", type=float, default=0.0, help="altitude du TERRAIN (m)")
+    sp.add_argument("--height", type=float, default=40.0, help="hauteur de la caméra au-dessus du sol")
+    sp.add_argument("--azimuth", type=float, default=90.0, help="azimut MAGNÉTIQUE lu")
+    sp.add_argument("--declination", type=float, help="déclinaison magnétique (positive vers l'est)")
+    sp.add_argument("--tilt", type=float, default=1.5)
+    sp.add_argument("--roll", type=float, default=0.0)
+    sp.add_argument("--mounting", default="steel_tower", choices=("open", "steel_tower", "surveyed"))
+    sp.add_argument("--width", type=int, default=0)
+    sp.add_argument("--height-px", type=int, default=0)
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_survey)
+
+    sp = common(sub.add_parser("sensor-validate", help="valider un portage capteur sur cible"))
+    sp.add_argument("--host")
+    sp.add_argument("--snapshot-url")
+    sp.add_argument("--user", default="root")
+    sp.add_argument("--password", default="")
+    sp.add_argument("--sensor", help="capteur attendu (défaut : celui de la configuration)")
+    sp.add_argument("--expect-fps", type=float, default=25.0)
+    sp.add_argument("--frames", type=int, default=8)
+    sp.add_argument("--measured-hfov", type=float,
+                    help="champ horizontal mesuré sur amers, en degrés")
+    sp.add_argument("--simulate", action="store_true")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_sensor_validate)
 
     sp = common(sub.add_parser("capabilities", help="capacités réellement disponibles"))
     sp.add_argument("--json", action="store_true")

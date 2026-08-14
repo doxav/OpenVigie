@@ -12,7 +12,7 @@ openvigie viewshed --synthetic                 # ce que le relief laisse voir
 openvigie selftest -t medium --mode cloud      # un nuage ne doit jamais alerter
 ```
 
-> **568 tests**, exécutés dans deux modes : avec OpenCV/SciPy, et **en NumPy pur**
+> **660 tests**, exécutés dans deux modes : avec OpenCV/SciPy, et **en NumPy pur**
 > — ce qui garantit que le cœur tourne sur une carte caméra.
 
 > [!IMPORTANT]
@@ -159,6 +159,11 @@ capteur est-il en amont ?
 |---|---|
 | IMX307, IMX327, IMX335, IMX415 | **en amont** |
 | IMX662, IMX664, IMX675, IMX678, IMX585 (STARVIS 2) | **à porter** |
+
+Le portage IMX675 **n'est pas fait** et ne peut pas l'être sans matériel ni
+documentation constructeur. Ce qui existe : la procédure, les paramètres
+attendus et un harnais de validation exécutable par qui dispose d'une carte
+(`openvigie sensor-validate`). Voir [docs/PORTAGE_IMX675.md](docs/PORTAGE_IMX675.md).
 
 Recommandation : **porter IMX675 + HI3516AV300 en priorité** — cette seule
 combinaison couvre les modules fixes 5 MP, le bloc 30×, le NNIE et le NIR
@@ -422,6 +427,53 @@ tracée dans le résumé comme dans chaque événement. C'est la phase de mesure
 recommandée plus bas, transformée en verrou logiciel plutôt qu'en phrase de
 documentation.
 
+### Dimensionnement par secteurs utiles
+
+```bash
+openvigie sectors -c site.yaml --from-viewshed data/mnt/site.npy
+```
+
+La planification ne suppose plus une couverture 360° : elle part des secteurs
+que le relief rend réellement exploitables, et compare les architectures qui
+peuvent les couvrir. Le résultat change les conclusions — **le balayage PTZ,
+inexploitable à 360° (21 positions, plus de 5 min de cycle), redevient
+raisonnable sur 140° utiles (4 positions, 1,3 min)**.
+
+Trois arbitrages que le calcul impose :
+
+- la **tête PTZ (~1 450 $) domine tout budget PTZ** : un anneau de quatre
+  modules fixes coûte moins de la moitié d'un module PTZ, sans latence ni usure ;
+- mais le matériel n'est pas le coût dominant d'un site réel — mât, câblage et
+  main-d'œuvre en hauteur dépendent du **nombre d'appareils**, et c'est là que
+  le module unique se défend ;
+- **grand-angle + PTZ ne voit pas plus loin** : la portée est celle du
+  grand-angle, la PTZ ne fait que lever le doute. L'intuition inverse est
+  fréquente et coûteuse.
+
+### Relevé d'installation
+
+```bash
+openvigie survey --lat 44.0 --lon 3.0 --altitude 500 --height 40 \
+                 --azimuth 85 --declination 2.1 --tilt 1.4 --mounting steel_tower
+```
+
+Quelques minutes au smartphone à la pose donnent une pose de départ. La
+répartition des incertitudes est très inégale, et c'est ce qui la rend utile :
+
+| Grandeur | Incertitude | Pourquoi |
+|---|---|---|
+| Assiette, roulis | **±0,5°** | l'accéléromètre mesure la gravité, que rien ne perturbe |
+| Position | ±5 m | GNSS ordinaire |
+| **Azimut** | **±15°** sur pylône treillis | le magnétomètre subit l'acier |
+
+Soit un facteur trente entre les deux axes. **Exactement complémentaire de
+l'étalonnage par trafic aérien**, qui excelle sur l'azimut et peine sur le
+reste. Et l'assiette est la grandeur qui commande la portée estimée.
+
+La déclinaison magnétique est **obligatoire** : un smartphone donne le nord
+magnétique, et l'oublier introduit un biais de 1 à 3° en France — du même ordre
+que ce que le relevé prétend mesurer.
+
 ### Multi-tours
 
 ```python
@@ -532,7 +584,7 @@ La suite : [ROADMAP.md](ROADMAP.md).
 ## 11. Installation et usage
 
 ```bash
-git clone https://github.com/VOTRE-USER/OpenVigie.git && cd OpenVigie
+git clone https://github.com/doxav/OpenVigie.git && cd OpenVigie
 ./scripts/bootstrap.sh          # poste de développement
 ./scripts/bootstrap.sh --edge   # cible embarquée : NumPy + PyYAML seulement
 ```
@@ -546,6 +598,8 @@ openvigie plan -t full                    openvigie doctor -c site.yaml
 openvigie viewshed --dem mnt.npy          openvigie hw --matrix
 
 # exploitation
+openvigie sectors -c site.yaml            # secteurs utiles, architectures comparées
+openvigie survey  --declination 2.1 ...   # relevé d'installation
 openvigie capabilities -c site.yaml       # ce qui fonctionne VRAIMENT
 openvigie schema                          openvigie outbox --dir data/outbox
 openvigie calibrate -t full --simulate    # étalonnage par trafic aérien
@@ -579,6 +633,8 @@ make test-all      # avec ET sans OpenCV/SciPy — ce que doit passer toute cont
 | `correlation` | déduplication, triangulation, sollicitation PTZ |
 | `calibration` | pose caméra, ADS-B, ajustement robuste, dérive |
 | `masking` | masques de confidentialité, appliqués à l'acquisition |
+| `modules` | secteurs utiles, comparaison d'architectures |
+| `survey` | relevé d'installation, amorce de calibration |
 | `ptz` | trames Pelco-D, ordonnanceur, avertissements d'usure |
 | `alerting`, `pipeline`, `config`, `sources`, `hwcheck`, `cli`, `compat` | — |
 

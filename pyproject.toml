@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openvigie"
-version = "0.5.0"
+version = "0.6.0"
 description = "Détection précoce de feux de forêt depuis des points hauts (tours télécom, pylônes)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,10 +36,10 @@ ultralytics = ["ultralytics>=8.2"]
 openvigie = "openvigie.cli:main"
 
 [project.urls]
-Repository = "https://github.com/VOTRE-USER/OpenVigie"
-Documentation = "https://github.com/VOTRE-USER/OpenVigie/blob/main/README.md"
-Issues = "https://github.com/VOTRE-USER/OpenVigie/issues"
-Changelog = "https://github.com/VOTRE-USER/OpenVigie/blob/main/CHANGELOG.md"
+Repository = "https://github.com/doxav/OpenVigie"
+Documentation = "https://github.com/doxav/OpenVigie/blob/main/README.md"
+Issues = "https://github.com/doxav/OpenVigie/issues"
+Changelog = "https://github.com/doxav/OpenVigie/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
