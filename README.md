@@ -255,6 +255,10 @@ nouveau ∧ origine-sol ∧ persistant(≥3) ∧ croissance>0
         ∧ (ascendance ∨ dérive-cohérente-vent) ∧ P_CNN>seuil
 ```
 
+`P_CNN` désigne ici le score ROI du détecteur spatial, quel que soit le backend
+effectif (`onnx`, `ultralytics`, `nnie` ou `classical`) ; ce score ne devient
+jamais une alarme sans persistance, géométrie et fusion calibrée.
+
 La probabilité du réseau ne déclenche **jamais** seule.
 
 ---
@@ -289,12 +293,12 @@ Détail, variantes et nomenclature annotée : [docs/HARDWARE.md](docs/HARDWARE.m
 ```
 snapshot JPEG q≥90        (jamais le flux H.265 : il détruit la fumée fine)
    ↓ recalage             corrélation de phase, porte anti-vibration
-   ↓ modèle de fond       par vue × heure × saison × jour/crépuscule/nuit
+   ↓ modèle de fond       appris par site/vue sur ~30 j de négatifs, sans GPU
    ↓ candidats            différence robuste (MAD) + morphologie + composantes connexes
    ↓ classification       uniquement sur les ROI — coût ∝ candidats, pas ∝ pixels
    ↓ suivi                association IoU + cycle de vie
    ↓ features physiques   m²/s, m/s, origine sol, perte de contraste, cohérence vent
-   ↓ fusion               logistique calibrée + veto géométrique
+   ↓ fusion               logistique à calibrer par site + veto géométrique
    ↓ hystérésis           entrer en alerte est plus dur qu'y rester
    ↓ événement            azimut, position MNT ou triangulée, ellipse, vignette, séquence
    ↓ file d'attente       durable : une coupure réseau ne perd rien
@@ -426,6 +430,11 @@ tracée dans le résumé comme dans chaque événement. C'est la phase de mesure
 recommandée plus bas, transformée en verrou logiciel plutôt qu'en phrase de
 documentation.
 
+Ici, **modèle de fusion calibré** signifie : coefficients `fitted=true` appris
+sur les événements validés/rejetés du site, et seuil choisi sur le budget de
+fausses alertes/jour mesuré sur les négatifs réels. Ce fit tient sur CPU ; la
+charge lourde éventuelle est celle du détecteur spatial, pas de la fusion.
+
 ### Dimensionnement par secteurs utiles
 
 ```bash
@@ -491,25 +500,37 @@ le meilleur rendement du projet après le détecteur lui-même.
 
 ### Modèles
 
-| Composant | Premier choix |
-|---|---|
-| Détection spatiale | poids Pyronear (YOLOv8-s) finetunés sur Pyro-SDIS |
-| Alternative sans AGPL | RTMDet-tiny, D-FINE, YOLOX, NanoDet (Apache-2.0) |
-| Temporel | CNN+LSTM ou Temporal Shift Modules |
-| Segmentation (tier FULL) | modèle distillé temps réel, **sur candidat uniquement** |
-| Embarqué sans NPU | étage classique, aucune dépendance ML |
+| Composant | Premier choix | État | Travail à prévoir |
+|---|---|---|---|
+| Modèle de fond | médiane glissante par vue × heure × saison | **À apprendre par site** | 30 jours de `record_baseline.py`, CPU seulement ; rien à télécharger |
+| Détection spatiale | poids Pyronear [`yolo11s_sensitive-detector`](https://huggingface.co/pyronear/yolo11s_sensitive-detector), export ONNX disponible | **Prêt à tester** | télécharger/épingler les poids ; calibrer seuil et fusion sur les négatifs du site avant tout mode `alert` |
+| Alternative sans AGPL | [RTMDet-tiny](https://mmyolo.readthedocs.io/en/dev/recommended_topics/algorithm_descriptions/rtmdet_description.html), [D-FINE](https://github.com/Peterande/D-FINE), [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX), [NanoDet](https://github.com/RangiLyu/nanodet) | **Préentraînés COCO, pas prêts fumée** | fine-tuner sur Pyro-SDIS + négatifs du site, puis exporter ONNX/INT8 ; charge typique : quelques heures de GPU 8–16 Go pour un nano/tiny |
+| Déploiement NNIE | modèle spatial converti pour HI3516AV300 | **À convertir** | export + quantification INT8/INT16 avec échantillons réels ; binaire NNIE non livré |
+| Temporel | CNN+LSTM ou Temporal Shift Modules | **À entraîner, non raccordé au pipeline** | séquences PyroNear-2025 + séquences du site ; GPU recommandé, à activer après validation du spatial |
+| Segmentation (tier FULL) | modèle distillé temps réel, **sur candidat uniquement** | **À entraîner/distiller, non raccordé au pipeline** | pseudo-labels hors ligne puis distillation ; coût principal = annotation/QA, pas inférence |
+| Fusion d'alerte | régression logistique OpenVigie | **À calibrer par site** | `fit_logistic` sur décisions opérateur + seuil FP/jour ; CPU, minutes |
+| Embarqué sans NPU | étage classique, aucune dépendance ML | **Prêt comme baseline** | pas d'entraînement ; seuils à calibrer, rappel limité |
+
+Le dépôt ne versionne aucun poids : même un modèle prêt à tester est un artefact
+externe à télécharger et à tracer via `model_version`. En pratique,
+**fine-tuner** signifie partir d'un poids COCO/Pyronear, entraîner sur
+[Pyro-SDIS](https://huggingface.co/datasets/pyronear/pyro-sdis) plus les
+négatifs du site, puis exporter vers le backend choisi (`onnx`, `ultralytics` ou
+`nnie`). Cette charge appartient au poste de développement ou au cloud GPU, pas à
+la caméra.
 
 Le cœur du sujet : ce n'est pas le backbone qui décide. PyroNear-2025 montre un
-F1 inter-datasets d'environ 60 % — des modèles qui « font 90 % » sur les jeux
-classiques s'effondrent sur des données réelles diversifiées. **Un YOLO nano bien
-calibré avec 100 000 vrais négatifs de vos sites battra un transformeur SOTA
+F1 inter-datasets de l'ordre de 60–70 % — des modèles qui « font 90 % » sur les
+jeux classiques s'effondrent sur des données réelles diversifiées. **Un YOLO nano
+bien calibré avec 100 000 vrais négatifs de vos sites battra un transformeur SOTA
 entraîné sur des jeux web.**
 
 ### Données
 
 Le dépôt ne contient aucun poids. Jeux publics et licences :
 [docs/DONNEES.md](docs/DONNEES.md). En tête, **Pyro-SDIS** (Apache-2.0, images de
-caméras installées avec des services d'incendie français).
+caméras installées avec des services d'incendie français), puis PyroNear-2025
+pour les séquences temporelles.
 
 Vous n'avez pas besoin de plus d'images de fumée : il en existe des centaines de
 milliers en accès libre. Vous avez besoin de **négatifs de vos sites**, et
@@ -541,13 +562,13 @@ mensuel, seuils recalibrés par site après 3–4 semaines.
 | Technique | Motif |
 |---|---|
 | Classification image entière feu/pas-feu | panache = 0,1–2 % de la scène |
-| YOLO mono-frame seul comme alarme | aucune information temporelle |
+| YOLO mono-frame seul comme alarme | détecteur spatial seulement : aucune persistance ni fusion calibrée |
 | Seuils RGB/gris, seuil NIR seul | NIR ≠ thermique |
 | Mouvement / flux optique / MOG2 **seuls** | générateurs de candidats, pas classifieurs |
 | Détecteur de flamme seul | le feu est masqué avant que la fumée ne le soit |
 | Braises, scintillement thermique à longue portée | sous la limite de résolution |
 | VLM/MLLM comme détecteur primaire | localisation médiocre des fumées précoces |
-| Segmentation fondation en continu | surdimensionné ; utile hors ligne pour pseudo-labels |
+| Segmentation fondation en continu | surdimensionné ; utile hors ligne pour pseudo-labels avant distillation |
 | **Détection pendant le mouvement PTZ** | détruit fond et flux |
 | **Différence de fond sans recalage** | bords fantômes partout |
 | **Analyse sur flux H.265** | détruit le signal de faible contraste |
@@ -626,7 +647,7 @@ make test-all      # avec ET sans OpenCV/SciPy — ce que doit passer toute cont
 | `candidates` | seuillage MAD, morphologie, perte de contraste, translucidité |
 | `tracking` | suivi IoU, features physiques en unités réelles |
 | `scoring` | logistique, apprentissage, seuil par budget de FP/jour, hystérésis |
-| `detectors` | `classical` / `onnx` / `ultralytics` (greffon AGPL) / `nnie` |
+| `detectors` | `classical` prêt / `onnx` poids fourni par l'utilisateur / `ultralytics` optionnel AGPL / `nnie` binaire converti par l'utilisateur |
 | `events` | schéma canonique, cycle de vie, incertitude, décisions opérateur |
 | `transport` | file durable, transports, battement de cœur, santé |
 | `correlation` | déduplication, triangulation, sollicitation PTZ |
