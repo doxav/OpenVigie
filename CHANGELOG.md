@@ -1,5 +1,24 @@
 # Journal des modifications
 
+## 0.6.1 — correctif de test (environnement conda/venv)
+
+`TestScriptDeployPackaging.test_sequence_de_paquetage_produit_un_paquet_importable`
+remplaçait tout l'environnement du sous-processus par
+`env={"OPENVIGIE_FORCE_NUMPY": "1", "PATH": "/usr/bin:/bin"}` et invoquait le
+binaire `python3` résolu via ce `PATH` tronqué. Ça passait par coïncidence
+quand `/usr/bin/python3` avait NumPy installé au niveau système, et échouait
+systématiquement sur une installation conda ou venv — c'est-à-dire
+l'environnement de développement le plus courant. Signalé par un utilisateur
+au premier `make test-all` sur sa machine.
+
+Corrigé : `sys.executable` au lieu de la chaîne `"python3"`, pour garantir
+qu'on relance le même interpréteur que celui qui exécute les tests (donc avec
+les mêmes paquets) ; `{**os.environ, "OPENVIGIE_FORCE_NUMPY": "1"}` au lieu de
+remplacer l'environnement, pour préserver `PATH`, `HOME` et les variables de
+l'environnement virtuel actif.
+
+Aucun changement de comportement du logiciel — uniquement du test.
+
 Le projet suit un versionnement sémantique à partir de la 1.0. Avant, les
 versions mineures peuvent introduire des ruptures ; elles sont listées ici.
 

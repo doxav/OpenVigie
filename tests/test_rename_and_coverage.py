@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -86,11 +88,23 @@ class TestScriptDeployPackaging:
         assert (extract / "openvigie" / "__init__.py").exists()
 
         # Et surtout : le paquet extrait doit être un module Python valide.
+        #
+        # BUG CORRIGÉ (0.6.1) : ce test remplaçait tout l'environnement du
+        # sous-processus par env={"OPENVIGIE_FORCE_NUMPY": "1", "PATH": "/usr/bin:/bin"}
+        # et invoquait le binaire "python3" résolu via ce PATH tronqué. Ça
+        # passait par coïncidence sur une machine où /usr/bin/python3 a NumPy
+        # installé au niveau système, et échouait systématiquement sur une
+        # installation conda/venv — c'est-à-dire l'environnement réel de
+        # développement le plus courant. sys.executable garantit qu'on relance
+        # le MÊME interpréteur que celui qui exécute les tests (donc avec les
+        # mêmes paquets), et {**os.environ, ...} étend l'environnement au lieu
+        # de l'écraser (PATH, HOME, variables de l'environnement virtuel...).
         result = subprocess.run(
-            ["python3", "-c",
+            [sys.executable, "-c",
              "import sys; sys.path.insert(0, '.'); import openvigie, openvigie.pipeline; "
              "print(openvigie.__version__)"],
-            cwd=extract, capture_output=True, text=True, env={"OPENVIGIE_FORCE_NUMPY": "1", "PATH": "/usr/bin:/bin"},
+            cwd=extract, capture_output=True, text=True,
+            env={**os.environ, "OPENVIGIE_FORCE_NUMPY": "1"},
         )
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip()

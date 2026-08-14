@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openvigie"
-version = "0.6.0"
+version = "0.6.1"
 description = "Détection précoce de feux de forêt depuis des points hauts (tours télécom, pylônes)"
 readme = "README.md"
 requires-python = ">=3.10"
