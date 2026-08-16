@@ -116,6 +116,11 @@ Pyronear.
 
 ## Pyronear et OpenVigie
 
+> Deux contributions issues de cette analyse sont désormais développées et
+> validées dans OpenVigie — association robuste et santé sémantique PTZ :
+> [CONTRIB_PYRONEAR.md](CONTRIB_PYRONEAR.md).
+
+
 ## 4. Calibration : ce qui existe déjà et ce qui reste à tester
 
 Pyronear possède **deux calibrations complémentaires**.

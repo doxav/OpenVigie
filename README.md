@@ -26,6 +26,17 @@ sont génériques. OpenVigie reste un banc d'essai autonome ; l'objectif n'est
 plus de reconstruire une seconde API, une seconde plateforme ou une seconde
 chaîne MLOps.
 
+**Premières contributions prêtes à proposer en amont** (développées et
+validées ici, sans matériel) :
+
+| Brique OpenVigie | Défaut visé en amont | Statut |
+|---|---|---|
+| [`association.py`](src/openvigie/association.py) | association `first-match-wins` : une boîte anormalement grande peut voler les détections d'un autre feu | validé par rejeu d'un scénario d'incident |
+| [`posehealth.py`](src/openvigie/posehealth.py) | tête PTZ bloquée ou caméra hors ligne déclarées saines : zone aveugle invisible | validé sur scénarios synthétiques |
+
+Détail, démonstration chiffrée et forme des PR :
+[docs/CONTRIB_PYRONEAR.md](docs/CONTRIB_PYRONEAR.md).
+
 **Priorités de contribution / expérimentation :**
 
 0. **Baseline reproductible Pyronear** — mesurer sur la stack et le matériel
