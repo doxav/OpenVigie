@@ -1,140 +1,307 @@
-# Veille marché — solutions existantes de détection de feux de forêt
+# Veille — Pyronear, contributions utiles et pistes de recherche
 
-*Recherche du 16 août 2026, à revérifier périodiquement : ce secteur évolue
-vite. Objectif : situer OpenVigie par rapport à ce qui existe déjà (Alibaba,
-AliExpress, GitHub, Reddit et adjacents), et éviter la confusion la plus
-courante — une caméra « IA feu/fumée » du commerce n'est presque jamais une
-caméra de guet forestière. Voir [HARDWARE.md](HARDWARE.md) pour la version
-courte de cette distinction.
+*État au 16 août 2026. Ce document privilégie la collaboration et les écarts
+techniques démontrables. Les prix et caractéristiques matérielles restent à
+revérifier avant achat.*
 
----
+## 1. Décision
 
-## Méthode et fiabilité des sources
+Après revue détaillée de l'écosystème Pyronear, **OpenVigie ne cherche plus à
+construire une stack opérationnelle parallèle**. Pyronear couvre déjà les
+caméras de points hauts, le PTZ, l'inférence edge, les séquences temporelles,
+la localisation multi-caméras, les données/entraînement/évaluation, l'API et la
+plateforme opérateur.
 
-Trois familles de sources, de fiabilité très inégale — c'est volontairement
-signalé dans la dernière colonne de chaque tableau :
+OpenVigie devient un **SDK/labo complémentaire, upstream-first** :
 
-- **Presse et sites officiels vérifiés** (France Bleu, ICI, Objectif Gard,
-  sites vendeurs directs) — fiable.
-- **Agrégateurs B2B généralistes** (Alibaba "supplier guides", accio.com) —
-  souvent des pages générées automatiquement à partir de catalogues, avec des
-  chiffres de synthèse (« 80 % de réduction des faux positifs ») **non
-  vérifiables**. Traités comme indicatifs, jamais comme des faits.
-- **Reddit** — très peu de résultats exploitables trouvés malgré plusieurs
-  formulations de recherche. La discussion communautaire sur ce sujet précis
-  semble se tenir ailleurs (forums OpenIPC, Discord Pyronear, GitHub Issues)
-  plutôt que sur Reddit.
-
-Aucun prix ni URL ci-dessous n'est inventé : quand un vendeur ne publie pas de
-prix (modèle « sur devis », courant en B2G), c'est noté tel quel plutôt que
-comblé par une estimation.
+- mesurer les limites de la baseline Pyronear ;
+- développer uniquement les briques manquantes qui montrent un gain ;
+- proposer upstream les composants génériques ;
+- conserver localement les expériences trop spécifiques ou non validées.
 
 ---
 
-## A. Solutions institutionnelles établies (tours de guet, portée longue)
+## 2. Caméras et PTZ Pyronear : le niveau réel
 
-*Le segment directement comparable à OpenVigie : détection à plusieurs km
-depuis un point haut, IA de classification, alerte à un centre opérationnel.*
+Le site Pyronear décrit des tours composées de **4/5 caméras haute résolution
+et d'un micro-ordinateur**, avec capture périodique et analyse locale.
 
-| Produit | Fonctionnalités / périmètre | Prix | URL | Dispo. rapide commune FR | Autres infos |
-|---|---|---|---|---|---|
-| **IQ FireWatch** (IQ Technologies for Earth and Space, Berlin) | Capteur optique breveté (mono + couleur + NIR nuit, option thermique), 360°, portée annoncée jusqu'à 64 km, IA + algorithmes à base de règles. Le système le plus ancien et le plus déployé au monde (24 M ha protégés, 4 continents, 200+ sites en Allemagne, présent au Portugal et jusqu'à la frontière belge). | Non public — modèle B2G/B2B, devis projet | [iq-firewatch.com](https://www.iq-firewatch.com/) | **Non.** Vente par projet avec intégrateur (ex. Climatec aux USA) ; aucun canal d'achat direct identifié ; pas de présence commerciale française confirmée à ce jour | 20+ ans d'exploitation réelle, la référence du secteur ; conçu avec le DLR (agence spatiale allemande) |
-| **Exavision — Nemosys Fire** (filiale d'Ineo Défense/Equans France) | Caméras thermiques + visibles combinées, IA de classification (élimine poussière de carrière, brûlage agricole), jumeau numérique 3D du territoire, détection <3 min, portée 25–40 km annoncée, couverture ~700 km²/tour. Déployé sur les tours de guet DFCI existantes. | Non public — partenariat SDIS, financement Fonds Vert/ministère | [Reportage France Bleu](https://www.francebleu.fr/emissions/l-invite-de-7h45-d-ici-gard-lozere/les-cameras-thermiques-de-ce-chef-d-entreprise-gardois-revolutionnent-la-lutte-et-la-surveillance-des-risques-incendie-8816975) · [Objectif Gard](https://www.objectifgard.com/actualites/gard-campagne-feux-de-foret-2026-presentation-dun-dispositif-de-detection-precoce-165298.php) | **Non.** Exclusivement en partenariat institutionnel avec un SDIS ; aucune vente directe à une commune identifiée | **Le plus proche concurrent français d'OpenVigie.** 10 tours opérationnelles dans le Gard mi-2026, objectif 12 fin 2026 ; 150 départs de feu détectés en 2025, 80 depuis le 1ᵉʳ juillet 2026 |
-| **Pano AI** | Caméras 360° + IA, vérification humaine avant alerte, déployé aux USA (Arizona Public Service, Colorado). | Non public | [Reportage FireRescue1](https://www.firerescue1.com/artificial-intelligence/ai-joins-the-wildfire-watch-across-the-west) | **Non.** B2G exclusivement, marché nord-américain principalement | Modèle « human-in-the-loop » avant transmission, proche de la philosophie d'OpenVigie |
-| **ALERTCalifornia / ALERTWest** (UC San Diego + Axis Communications) | Réseau de 1 200+ caméras Axis, IA, ~3 600 incidents détectés/an dont plus de la moitié avant tout appel au 911. | Financement public (CAL FIRE, fonds fédéraux) | [Security Today](https://securitytoday.com/articles/2026/06/23/ai-camera-network-boosts-early-california-wildfire-detection.aspx) | **Non.** Infrastructure publique californienne, non commercialisée | Le réseau le plus vaste au monde en nombre de caméras ; données partiellement publiques (HPWREN) |
-| **SmartForestFire** (Fraunhofer IIS/IML, Allemagne) | Caméras + capteurs environnementaux + réseau radio mioty®, jumeau numérique. | Projet pilote, non commercial | [wiot-group.com](https://wiot-group.com/think/en/news/smartforestfire-ai-wildfire-early-warning/) | **Non.** Phase de test (3 sites caméra fin 2026), pas encore un produit | Intéressant pour la fusion caméra+capteurs, mais non déployable en l'état |
+Références :
+[Pyronear](https://pyronear.org/fr/) ·
+[`pyro-engine`](https://github.com/pyronear/pyro-engine) ·
+[`pyro-sys-setup`](https://github.com/pyronear/pyro-sys-setup).
 
----
+| Matériel / interface | Capacités utiles | Prix indicatif | Support Pyronear |
+|---|---|---:|---|
+| **Reolink RLC-823S2** | 8 MP 3840×2160/25 fps, 1/2,8", **16× 5,3–86 mm**, PTZ 360°/90°, PoE, IP66 | **379,99 €** boutique Reolink FR au 16/08/2026 | support explicite dans les tables FOV et calibration PTZ |
+| **Reolink RLC-823A 16X** | 8 MP, 16×, PTZ | ancien modèle, prix/disponibilité variables | support explicite, tables FOV/vitesse |
+| **Reolink statique** | snapshot/RTSP/PoE selon modèle | selon modèle | provisionnement générique `static`; Pyronear n'impose pas un SKU unique public |
+| **Linovision/Hikvision ISAPI** | snapshot, PTZ, focus/zoom, **lecture d'azimut matériel** | selon modèle | adaptateur natif |
+| **RTSP / URL / REST** | intégration de caméras existantes | matériel existant | adaptateurs génériques |
 
-## B. Solutions commerciales à portée EU, potentiellement plus accessibles
+Spécifications :
+[RLC-823S2](https://reolink.com/fr/product/rlc-823s2/) ·
+[RLC-823A 16X](https://reolink.com/us/product/rlc-823a-16x/).
 
-| Produit | Fonctionnalités / périmètre | Prix | URL | Dispo. rapide commune FR | Autres infos |
-|---|---|---|---|---|---|
-| **SmokeD** (Pologne) | Caméras Classic (mono, 82°) ou DuoVue (double objectif, 164°), 12,3 MP, IA cloud, détection ~10 min à 15 km de rayon. 5 unités Classic ou 3 DuoVue pour un 360°. App mobile et web pour opérateurs. | Non public — « contactez-nous » | [smokedsystem.com/detector](https://smokedsystem.com/detector/) | **Incertain.** Entreprise UE (Pologne), vente par contact commercial ; **aucun déploiement français confirmé** dans les sources trouvées (référence connue : Hidden Hills, Californie) | Fiches techniques publiques détaillées (résolution, consommation, PoE) — rare dans ce secteur |
-| **Dryad Networks — Silvanet** (Allemagne) | **Technologie différente : capteurs de gaz au sol (CO, VOC, particules), pas de caméra.** Détection dès la phase de smoldering, réseau maillé LoRaWAN + satellite (Kinéis), autonomie 10–15 ans sans batterie remplaçable. | **Prix publics rares dans ce secteur** : capteur ≈48 €, passerelle maillage ≈371 €, passerelle bordure ≈549 € (tarifs 2022, à revérifier) | [dryad.net/wildfiresensor](https://www.dryad.net/wildfiresensor) · [détail prix (ST Blog)](https://blog.st.com/silvanet/) | **Incertain.** Société allemande établie, déploiements connus (Liban et autres) ; pas de confirmation française trouvée | Complémentaire plutôt que concurrent d'OpenVigie : détecte le smoldering avant toute fumée visible, mais ne localise pas visuellement et ne fait pas de levée de doute par image |
+### Contrôles déjà présents
 
----
+Dans le code public inspecté, l'intégration Reolink Pyronear fournit :
 
-## C. Caméras « IA feu/fumée » grand public et pro — une nuance importante
+- snapshot JPEG (`Snap`) ;
+- PTZ, presets, mouvement temporisé ;
+- zoom ;
+- autofocus on/off ;
+- focus manuel et recherche automatique du meilleur focus ;
+- lecture du niveau zoom/focus ;
+- configuration 4K / bitrate / fps / GOP via le script d'encodage ;
+- tables FOV mesurées suivant le zoom ;
+- calibration vitesses/biais pan/tilt.
 
-**Découverte utile de cette recherche** : les gammes « AI fire/smoke detection »
-des grands fabricants de vidéosurveillance (Dahua, Hikvision, ANNKE) et la
-plupart des annonces Alibaba génériques **ne sont pas des équivalents
-d'OpenVigie**. Vérifié sur fiche produit Dahua officielle (distributeur
-agréé) : couverture annoncée de 30 à 60 m² pour la détection fumée, portée
-flamme de 10 m. Ce sont des produits de **sécurité incendie de bâtiment ou de
-site industriel** (entrepôt, transformateur), pas des caméras de guet à
-plusieurs kilomètres — malgré un marketing qui emploie le même vocabulaire
-« IA », « détection précoce », « fumée et flamme ».
+La calibration PTZ Pyronear n'est donc pas superficielle : son outil mesure
+automatiquement le déplacement par ORB, ajuste le modèle
+`déplacement = vitesse × temps + biais`, calibre à plusieurs zooms et construit
+la table FOV.
 
-| Produit | Fonctionnalités / périmètre | Prix | URL | Dispo. rapide commune FR | Autres infos |
-|---|---|---|---|---|---|
-| **Dahua DHI-HY-SAV849HAP-E** | Caméra IP 5 MP, capteur IR anti-incendie intégré, couverture fumée **30–60 m²**, focale fixe 2 mm. | Sur devis (distributeur B2B) | [By Demes Group](https://bydemes.com/en/brands/dahua/cctv/network-cameras/fire-smoke-gas/DAHUA-3306-FO) | **Oui pour un bâtiment**, via distributeur agréé (Demes Group dessert l'Espagne/France) ; **non pertinent pour de la forêt** | Portée bâtiment/site industriel, pas forêt |
-| **Dahua DHI-HY-FT121LDP-TD1F4** | Dôme détection de flamme, thermique 1,2 mm + visible 4 mm, portée annoncée **10 m** (zone 10×10 cm). | Sur devis | [By Demes Group](https://bydemes.com/en/brands/dahua/cctv/network-cameras/fire-smoke-gas/DAHUA-3450-FO) | idem | Portée métrique, pas kilométrique |
-| **ANNKE Custos / caméra IA fire** | Caméra 4 MP grand public, détection fumée/flamme + comportements (fumeur, téléphone), IP67, PoE. | Prix catalogue non trouvé dans cette recherche | [annke.com](https://www.annke.com/products/fire-detection-cam) | **Oui**, vente directe grand public, livraison rapide plausible | Positionnement résidentiel/petit commerce, pas watch-tower |
-| **Annonces génériques AliExpress/Alibaba** (« forest fire detection camera », « AI smoke PTZ ») | Très hétérogène : blocs PTZ thermiques 5,5–240 mm de fabricants chinois (Zhuangyuanxiang, Baijiang, Jinan Hope Wish, Ikevision, etc.), allant d'un simple seuil colorimétrique à une classification IA non documentée/non auditée. | **De ~$200** (kit forest fire + drone, Alibaba) **à $24 500–31 000** (PTZ thermique longue portée avec SDK) | [Showroom Alibaba](https://www.alibaba.com/showroom/forest-fire-detection.html) · [Guide fournisseurs](https://www.alibaba.com/supplier/infrared-detection-fire-camera.html) | **Oui**, achat direct, mais délais et SAV très variables selon fournisseur | **Aucune preuve indépendante de performance trouvée** pour la quasi-totalité de ces annonces ; les pages « guide fournisseur » elles-mêmes ont l'air largement générées automatiquement (chiffres de synthèse non sourcés) |
+Sources :
+[`reolink.py`](https://github.com/pyronear/pyro-engine/blob/develop/pyro_camera_api/pyro_camera_api/camera/adapters/reolink.py) ·
+[`set_cam_encoding.py`](https://github.com/pyronear/pyro-engine/blob/develop/src/set_cam_encoding.py) ·
+[PTZ calibration tools](https://github.com/pyronear/pyro-engine/blob/develop/tools/README.md).
 
----
+### Réglages image avancés : manque logiciel limité, pas besoin d'OpenIPC par défaut
 
-## D. Logiciel open source — GitHub
+Le code Pyronear inspecté n'expose pas actuellement les réglages avancés
+Reolink tels que exposition, backlight/dynamic-range, jour/nuit ou autres
+paramètres ISP. **Ce n'est pas une incapacité de la caméra** : Reolink expose
+ces réglages dans son client et son interface web, et documente CGI comme
+interface d'automatisation/paramétrage.
 
-| Projet | Fonctionnalités / périmètre | Prix | URL | Dispo. rapide commune FR | Autres infos |
-|---|---|---|---|---|---|
-| **Pyronear** (pyro-engine, pyro-api, pyro-vision, pyro-sys-setup) | **Le seul véritable équivalent open source d'OpenVigie.** Pipeline de détection edge, API d'alerte, plateforme de supervision, adaptateurs caméra **Reolink** et **Linovision/Hikvision (ISAPI)**, déploiement documenté sur Raspberry Pi. Poids de modèle publiés (YOLOv8s, YOLO11s) sous licence ouverte. Partenariats SDIS français actifs (Gard notamment). | **Gratuit** (logiciel) ; matériel à assembler soi-même (caméra Reolink $150–600 + Raspberry Pi ~$80) | [github.com/pyronear](https://github.com/pyronear) · [pyro-engine](https://github.com/pyronear/pyro-engine) · [pyro-sys-setup](https://github.com/pyronear/pyro-sys-setup) | **Oui**, matériel Reolink/Raspberry Pi disponible en quelques jours ; assemblage et calibration à faire soi-même | Contrairement à OpenVigie, cible des caméras grand public existantes plutôt que le firmware OpenIPC ; pas de MNT, pas d'étalonnage géométrique par trafic aérien, pas de secteurs angulaires |
-| **AI For Mankind — wildfire-smoke-detection-camera** | Tutoriel Docker pour entraîner un détecteur sur images HPWREN annotées. Dataset de référence (2 192 images) largement réutilisé par le secteur académique. | Gratuit | [github.com/aiformankind/wildfire-smoke-detection-camera](https://github.com/aiformankind/wildfire-smoke-detection-camera) | N/A (tutoriel, pas un produit) | Base pédagogique utile, pas un système déployable |
-| **oct-firecam** (Open Climate Tech) | Pipeline de collecte/inférence sur caméras existantes (HPWREN), publié sur PyPI. | Gratuit | [pypi.org/project/oct-firecam](https://pypi.org/project/oct-firecam) | N/A | Apache-2.0, orienté recherche |
-| Dizaines de dépôts « fire-detection »/« wildfire-detection » (YOLOv5/v8/v11, Faster R-CNN, CNN maison) | Modèles de classification/détection entraînés sur des jeux publics ou Kaggle, précision annoncée 92–99 % sans protocole de validation terrain. | Gratuit | [github.com/topics/wildfire-detection](https://github.com/topics/wildfire-detection) | N/A | **Aucun ne constitue un système** (pas de géométrie, pas de gestion PTZ, pas d'alerte structurée) — ce sont des modèles isolés, exactement le composant qu'OpenVigie encapsule dans un pipeline complet |
-| **ScorchVision** (app iOS, éditeur indépendant) | App gratuite qui reçoit le flux d'une caméra Raspberry Pi DIY et fait tourner un modèle de détection feu en local sur le téléphone. | Gratuit | [App Store](https://apps.apple.com/ca/app/scorchvision/id6748545495) | Oui, mais projet DIY perso, pas un système opérationnel | Découvert en marge des recherches GitHub/Reddit ; illustre l'écosystème hobbyiste autour de Raspberry Pi + caméra |
+Références :
+[Advanced image settings](https://support.reolink.com/articles/4403930384025-How-to-Configure-Advanced-Image-Settings-on-Your-Reolink-Camera/) ·
+[Exposure/backlight](https://support.reolink.com/articles/900003659266-How-to-Configure-Exposure-and-Backlight-Settings/) ·
+[CGI/RTSP/ONVIF](https://support.reolink.com/articles/900000617826-Which-Reolink-Products-Support-CGI-RTSP-ONVIF/).
 
----
-
-## E. Reddit et communautés — résultat honnête
-
-Plusieurs formulations de recherche (`site:reddit.com`, requêtes ciblées
-« wildfire detection camera DIY », « self-hosted smoke detection ») n'ont
-remonté **aucune discussion Reddit substantielle et récente** sur des projets
-comparables à OpenVigie. Ce que la recherche a surtout fait remonter à la
-place : des projets étudiants/académiques sur GitHub (Raspberry Pi + OpenCV,
-souvent à portée métrique, pas kilométrique), et le forum/écosystème OpenIPC
-lui-même — plus pertinent qu'un fil Reddit générique pour ce sujet très
-spécifique de portage de pilotes caméra.
-
-**Conclusion honnête** : soit la discussion communautaire sur ce sujet précis
-se tient ailleurs (Discord Pyronear, forums DFCI, forum OpenIPC), soit elle
-est simplement peu volumineuse à ce jour.
+**Décision :** ne pas développer un port OpenIPC pour ce motif. D'abord mesurer
+si un réglage ISP stable améliore réellement rappel/FP. Si oui, contribuer une
+petite extension Reolink/provisioning à Pyronear.
 
 ---
 
-## Synthèse pour OpenVigie
+## 3. Multi-caméras et localisation
 
-**Ce qui fait vraiment doublon** : rien d'identique en open source. Pyronear
-est le seul projet comparable en ambition, et il est complémentaire plutôt que
-concurrent — il cible des caméras grand public (Reolink) là où OpenVigie cible
-le firmware OpenIPC pour un coût matériel inférieur et une autonomie sans
-dépendance à un fabricant fermé. Un rapprochement ou un partage de modèles
-avec Pyronear (déjà amorcé dans le README d'OpenVigie via Pyro-SDIS et les
-poids YOLO11s) reste la piste la plus rentable plutôt qu'une reconstruction
-parallèle.
+`pyro_camera_api` gère statiques et PTZ. La boucle statique capture
+périodiquement ; la boucle PTZ parcourt des poses et cède la priorité au live
+opérateur. `pyro-api` groupe les détections en séquences, les valide
+temporellement puis localise des alertes par recouvrement de cônes de plusieurs
+caméras.
 
-**Ce qui manque à tous les concurrents commerciaux identifiés** :
-- **Aucun n'est achetable rapidement par une petite commune française.**
-  IQ FireWatch, Exavision, Pano AI, ALERTWest sont tous des ventes de projet
-  B2G, sans prix public, avec un cycle de décision institutionnel.
-- **Aucun n'est open source.** Une commune ou une association ne peut ni
-  auditer, ni adapter, ni redéployer ces systèmes ailleurs.
+Sources :
+[`patrol.py`](https://github.com/pyronear/pyro-engine/blob/develop/pyro_camera_api/pyro_camera_api/camera/patrol.py) ·
+[`pyro-api`](https://github.com/pyronear/pyro-api).
 
-**Le vrai risque de confusion pour un acheteur non averti** : les caméras
-« IA feu/fumée » très facilement achetables (Dahua, ANNKE, la plupart des
-annonces AliExpress) sont conçues pour un bâtiment, pas une forêt — 30 à 60 m²
-de couverture, pas plusieurs kilomètres. C'est une distinction que le
-README/HARDWARE.md d'OpenVigie pourrait utilement expliciter, puisque c'est
-précisément le genre de confusion marketing que quelqu'un cherchant à
-équiper un point haut pourrait faire en tapant « caméra IA détection incendie »
-dans un moteur de recherche.
+**Conséquence :** « multi-camera », « PTZ », « calibration FOV » et
+« triangulation/localisation » ne sont pas des différenciateurs suffisants
+d'OpenVigie.
+
+Une piste reste cependant utile : la chaîne automatique
+
+`alerte localisée → choisir une autre caméra qui voit la zone → pointer/zoomer → reclassifier`
+
+n'a pas été identifiée de bout en bout dans le code public inspecté.
+OpenVigie possède déjà une primitive `MultiTowerCorrelator.confirmation_tasks`
+qui sélectionne une tour selon visibilité, distance et angle de croisement.
+C'est une bonne candidate de contribution, après validation avec l'équipe
+Pyronear.
 
 ---
 
-*Recherche menée le 16 août 2026 par recherche web progressive (15 requêtes,
-3 récupérations de pages complètes) sur Alibaba, AliExpress, GitHub, Reddit et
-sources adjacentes. Les prix et statuts de disponibilité évoluent vite dans ce
-secteur ; à revérifier avant toute décision d'achat.*
+## Pyronear et OpenVigie
+
+## 4. Calibration : ce qui existe déjà et ce qui reste à tester
+
+Pyronear possède **deux calibrations complémentaires**.
+
+### Calibration d'azimut absolu
+
+`pyro-sys-setup/cam_calibration` :
+
+1. balayage PTZ sur >360° ;
+2. phase correlation pour mesurer le décalage réel entre vues ;
+3. deux clics sur la zone de recouvrement pour obtenir `px/deg` ;
+4. un clic sur un amer dont l'azimut est connu pour ancrer le nord ;
+5. `calibration.csv` donnant l'azimut de chaque pose ;
+6. SIFT + RANSAC/homographie pour estimer ensuite l'azimut d'une nouvelle
+   image.
+
+Source :
+[`cam_calibration/README.md`](https://github.com/pyronear/pyro-sys-setup/blob/main/cam_calibration/README.md).
+
+### Calibration PTZ / zoom
+
+`pyro-engine/tools` calibre :
+
+- vitesses et biais mécaniques pan/tilt ;
+- micro-mouvements ;
+- FOV horizontal/vertical selon le zoom ;
+- click-to-move.
+
+Source :
+[`tools/README.md`](https://github.com/pyronear/pyro-engine/blob/develop/tools/README.md).
+
+### Ce qu'OpenVigie ne doit pas dupliquer
+
+À abandonner comme contribution autonome :
+
+- calibration manuelle d'azimut par amer ;
+- panorama 360° ;
+- tables FOV/zoom ;
+- calibration vitesse/biais PTZ.
+
+### Extension qui peut encore avoir une valeur
+
+OpenVigie possède un modèle de pose pinhole et un solveur ADS-B expérimental
+capable d'estimer notamment yaw/pitch/roll/focale et des biais temporels/
+altimétriques. La valeur potentielle n'est donc **pas** « calibrer l'azimut »,
+déjà bien traité par Pyronear, mais :
+
+- mesurer **tilt et roll absolus** ;
+- vérifier/raffiner les intrinsics/focale ;
+- détecter une **dérive lente de pose** après vent, maintenance ou mouvement ;
+- propager cette erreur jusqu'à l'incertitude de localisation.
+
+L'ADS-B reste une hypothèse de R&D : il doit être comparé à la calibration
+Pyronear + amers fixes sur un vrai site avant toute proposition upstream.
+L'issue [`pyro-engine #397`](https://github.com/pyronear/pyro-engine/issues/397)
+montre un problème réel de précision sur de grands mouvements RLC-823A16, mais
+cela ne prouve pas que l'ADS-B soit la bonne correction.
+
+---
+
+## 5. Contributions qui semblent réellement utiles
+
+| Priorité | Contribution | Pourquoi |
+|---:|---|---|
+| **0** | **Baseline reproductible Pyronear** | avant toute invention : mesurer rappel/TTD par distance et visibilité, FP/jour, localisation, CPU/RAM, énergie, réseau, stabilité ISP/PTZ |
+| **1** | **Petites fumées / haute résolution** | `pyro-predictor` travaille typiquement à `imgsz=1024`; tester candidate-first/tiling avant réduction peut préserver de petites fumées lointaines |
+| **2** | **MNT/horizon par pixel au runtime** | apporte origine-sol, distance et visibilité terrain au-delà d'un simple cône |
+| **3** | **Pose 3D + dérive + incertitude** | compléter, pas remplacer, les calibrations Pyronear existantes |
+| **4** | **Localisation probabiliste** | ellipse/confidence issue de bbox + pose + MNT + angle de croisement |
+| **5** | **Confirmation multi-camera/PTZ automatique** | transformer la localisation en levée de doute active |
+| **6** | **Signaux physiques/contextuels** | croissance, ascendance, contraste, visibilité, vent comme validateurs additionnels |
+| **7** | **Données/évaluation communes** | faux positifs terrain et scénarios de régression vers `pyro-dataset`, `pyro-eval`, `pyro-annotator` |
+| **8** | **Optimisation globale avec OpenTrace** | rechercher automatiquement de meilleurs compromis de configuration/code à partir de feedbacks riches |
+
+### Ce qui devient non prioritaire / à abandonner sauf preuve contraire
+
+- port OpenIPC comme objectif en soi ;
+- portage IMX675/STARVIS2 comme roadmap principale ;
+- NNIE/calcul dans la caméra comme objectif par défaut ;
+- nouvelle abstraction PTZ/Pelco concurrente ;
+- API centrale, UI opérateur ou chaîne MLOps OpenVigie parallèles ;
+- nouvelle calibration azimut/FOV/vitesse qui dupliquerait Pyronear.
+
+Ces travaux peuvent rester dans le labo comme **options de recherche** si la
+baseline met en évidence un besoin précis.
+
+---
+
+## 6. OpenTrace : optimisation riche, multi-objectifs et Pareto
+
+La référence actuelle est
+[`AgentOpt/OpenTrace`](https://github.com/AgentOpt/OpenTrace), active en 2026.
+Le dépôt `microsoft/Trace` correspond à l'implémentation maintenue par les
+auteurs lorsqu'ils étaient chez Microsoft ; il n'est plus la référence à
+utiliser pour les nouveaux travaux.
+
+OpenTrace trace un workflow Python comme un graphe de calcul et permet de rendre
+des paramètres **ou des fonctions** entraînables. Les optimiseurs peuvent
+recevoir du feedback très général : valeurs numériques, texte en langage
+naturel, erreurs de tests/compilation, etc.
+
+Cela correspond bien à OpenVigie/Pyronear, à condition de ne pas l'utiliser
+comme auto-update de production.
+
+### Feedbacks exploitables
+
+| Source | Exemples |
+|---|---|
+| vérité terrain | recall, miss, temps depuis ignition, distance/visibilité |
+| faux positifs | FP/jour + classe `fog`, `cloud`, `dust`, `industrial`… |
+| géométrie | erreur localisation, taille ellipse, erreur azimut/tilt |
+| performance | latency p50/p95, CPU, RAM, énergie, température |
+| réseau | octets/alerte, débit moyen, taux de retry |
+| PTZ | mouvements/jour, temps de confirmation, erreur de pointage |
+| qualité code | pytest, ruff, type-checking, benchmarks, invariants |
+| humain | commentaire opérateur : « trop sensible à la brume », « crop trop serré », « localisation crédible » |
+
+### Cibles d'optimisation utiles aujourd'hui
+
+- `conf_thresh`, `model_conf_thresh`, fenêtre temporelle ;
+- résolution d'inférence / tiling / stratégie candidate-first ;
+- cadence de capture ;
+- taille et qualité JPEG des preuves ;
+- seuils d'association de séquences ;
+- règles de regroupement multi-caméras ;
+- seuils et poids des features physiques ;
+- stratégie de confirmation PTZ ;
+- paramètres de visibilité/MNT ;
+- éventuellement des fonctions de matching ou fusion, avec tests de
+  non-régression.
+
+Les issues Pyronear fournissent déjà d'excellents cas de régression :
+[`pyro-api #662`](https://github.com/pyronear/pyro-api/issues/662) décrit un
+matching de séquence où une grande bbox peut « voler » les détections d'un autre
+feu ; [`#643`](https://github.com/pyronear/pyro-api/issues/643) porte sur le
+raffinement d'azimut et le recalcul de triangulation ; `pyro-engine #397`
+documente une calibration PTZ imparfaite à grands angles.
+
+### Pareto : couche à ajouter autour d'OpenTrace
+
+Aucun optimiseur Pareto multi-objectifs natif n'a été identifié dans le dépôt
+OpenTrace inspecté. Il ne faut donc pas prétendre que le framework fournit
+directement NSGA-II ou un front de Pareto.
+
+Le schéma proposé est :
+
+1. OpenTrace génère/modifie une configuration ou une fonction ;
+2. une campagne reproductible l'évalue ;
+3. on collecte un vecteur d'objectifs :
+   `(recall, FP/jour, TTD, erreur_geo, CPU, RAM, Wh, réseau, PTZ)` ;
+4. un petit contrôleur extérieur conserve les solutions **non dominées** ;
+5. le feedback textuel complet, y compris commentaires humains et échecs de
+   tests, repart vers OpenTrace ;
+6. aucune solution n'est mergée ou déployée sans contraintes dures, holdout,
+   régressions et revue humaine.
+
+Les métriques de sûreté deviennent des **contraintes**, pas des objectifs que
+l'optimiseur peut sacrifier : par exemple recall minimal et absence de
+régression sur feux faibles avant d'optimiser énergie ou bande passante.
+
+---
+
+## 7. Décision hardware
+
+La Reolink RLC-823S2 supportée par Pyronear est déjà une caméra intégrée très
+compétitive : 8 MP, 16×, PTZ, PoE, IP66 et disponibilité française immédiate.
+OpenVigie ne doit donc pas présenter un module nu IMX675/OpenIPC comme
+amélioration par défaut.
+
+OpenIPC/STARVIS2 ne redevient pertinent que si des essais A/B montrent un gain
+mesurable, par exemple :
+
+- meilleure détection de fumée faible/NIR ;
+- contrôle ISP impossible à obtenir sur Reolink ;
+- forte réduction de consommation/coût ;
+- nécessité démontrée d'exécuter sans micro-ordinateur.
+
+Sinon, le temps communautaire est mieux investi dans les huit contributions
+ci-dessus.
+
+---
+
+## 8. Positionnement public
+
+> **OpenVigie est un SDK/labo complémentaire de Pyronear, upstream-first.**
+> Il sert à mesurer les limites du système existant et à expérimenter des
+> améliorations de détection, géométrie, calibration, incertitude et
+> optimisation. Lorsqu'une brique est générique et utile, la priorité est de la
+> proposer à Pyronear plutôt que de maintenir une alternative parallèle.

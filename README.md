@@ -12,16 +12,58 @@ d'**OpenIPC** pour rester indépendant d'une référence de matériel.
 > Détail : [docs/HARDWARE.md](docs/HARDWARE.md#0-la-règle-de-dimensionnement) ·
 > [docs/VEILLE_MARCHE.md](docs/VEILLE_MARCHE.md).
 
-```bash
-openvigie hw --matrix                          # quelles cartes sont utilisables
-openvigie plan   -c config/tiers/medium.yaml   # combien de caméras, quelle portée, quelle revisite
-openvigie doctor -c config/tiers/medium.yaml   # le dimensionnement tient-il debout
-openvigie viewshed --synthetic                 # ce que le relief laisse voir
-openvigie selftest -t medium --mode cloud      # un nuage ne doit jamais alerter
-openvigie run -c site.yaml --dry-run           # valider l'agent sans ouvrir les caméras
-```
+## Orientation : contribuer d'abord à Pyronear
 
-> **698 tests**, exécutés dans deux modes : avec OpenCV/SciPy, et **en NumPy pur**
+Une étude plus détaillée de [Pyronear](https://github.com/pyronear) montre que
+son écosystème couvre déjà une grande partie de la chaîne opérationnelle :
+caméras haute résolution et PTZ, inférence edge, séquences et validation
+temporelle, localisation multi-caméras, données/entraînement/évaluation, API et
+plateforme opérateur.
+
+Pour l'intérêt commun, **OpenVigie s'oriente donc vers un SDK/labo
+complémentaire, upstream-first** : mesurer les limites de la stack Pyronear,
+expérimenter les briques manquantes, puis les proposer upstream lorsqu'elles
+sont génériques. OpenVigie reste un banc d'essai autonome ; l'objectif n'est
+plus de reconstruire une seconde API, une seconde plateforme ou une seconde
+chaîne MLOps.
+
+**Priorités de contribution / expérimentation :**
+
+0. **Baseline reproductible Pyronear** — mesurer sur la stack et le matériel
+   supportés : rappel et temps de détection par distance/visibilité, FP/jour,
+   localisation, CPU/RAM, énergie, bande passante, stabilité image et PTZ.
+   Si un réglage Reolink (exposition/WDR/jour-nuit...) devient un vrai
+   bloqueur, contribuer d'abord ce contrôle à Pyronear plutôt que changer de
+   firmware/caméra.
+1. **Petites fumées / haute résolution** — tester un étage `candidate-first`
+   ou du tiling avant le redimensionnement du détecteur, puis mesurer le gain
+   face au `pyro-predictor` actuel.
+2. **Géométrie terrain au runtime** — MNT/horizon par pixel, distance,
+   origine-sol et visibilité réelle.
+3. **Calibration complémentaire uniquement** — réutiliser la calibration
+   Pyronear existante (azimut, FOV/zoom, vitesses PTZ) et n'étudier que la pose
+   3D/tilt-roll, la dérive continue et leur incertitude ; ADS-B/amers restent
+   des méthodes expérimentales à comparer au terrain.
+4. **Incertitude de localisation** — propager erreur de bbox, pose, MNT et
+   angle de croisement jusqu'à une ellipse/confiance exploitable.
+5. **Confirmation multi-caméras/PTZ** — à partir d'une alerte localisée,
+   sélectionner une autre caméra qui voit réellement la zone, pointer/zoomer
+   puis reclassifier.
+6. **Signaux physiques/contextuels** — croissance, ascendance, perte de
+   contraste, visibilité et vent comme validateurs complémentaires du modèle.
+7. **Données et évaluation** — contribuer négatifs terrain, scénarios de
+   régression et métriques à `pyro-dataset` / `pyro-eval` / `pyro-annotator`
+   lorsque licence et confidentialité le permettent.
+8. **Optimisation système avec
+   [AgentOpt/OpenTrace](https://github.com/AgentOpt/OpenTrace)** — exploiter
+   traces, métriques automatiques et retours humains pour proposer et évaluer
+   configurations/code ; maintenir un front de Pareto rappel/FP/latence/
+   ressources/bande passante. Optimisation uniquement offline/shadow, avec
+   tests de régression et revue humaine avant toute intégration.
+
+Comparaison technique et justification :
+[docs/VEILLE_MARCHE.md](docs/VEILLE_MARCHE.md#pyronear-et-openvigie).
+
 > — ce qui garantit que le cœur tourne sur une carte caméra.
 
 > [!IMPORTANT]
@@ -107,17 +149,16 @@ justement pour que chacun puisse s'arrêter et reprendre sans rien casser.
 - [Pourquoi maintenant, et comment aider](#pourquoi-maintenant-et-comment-aider)
 
 1. [Le parti pris](#1-le-parti-pris)
-2. [Pourquoi OpenIPC](#2-pourquoi-openipc)
+2. [OpenIPC comme piste de laboratoire](#2-openipc-comme-piste-de-laboratoire)
 3. [Le calcul qui commande tout](#3-le-calcul-qui-commande-tout)
 4. [Symptômes à détecter](#4-symptômes-à-détecter)
-5. [Conception matérielle en trois niveaux](#5-conception-matérielle-en-trois-niveaux)
-6. [Le pipeline](#6-le-pipeline)
-7. [Du capteur au système](#7-du-capteur-au-système)
-8. [Modèles, données, faux positifs](#8-modèles-données-faux-positifs)
-9. [Ce qu'il faut exclure](#9-ce-quil-faut-exclure)
-10. [Mise en service](#10-mise-en-service)
-11. [Installation et usage](#11-installation-et-usage)
-12. [Licence et responsabilité](#12-licence-et-responsabilité)
+5. [Le pipeline](#6-le-pipeline)
+6. [Du capteur au système](#7-du-capteur-au-système)
+7. [Modèles, données, faux positifs](#8-modèles-données-faux-positifs)
+8. [Ce qu'il faut exclure](#9-ce-quil-faut-exclure)
+9. [Mise en service](#10-mise-en-service)
+10. [Installation et usage](#11-installation-et-usage)
+11. [Licence et responsabilité](#12-licence-et-responsabilité)
 
 ---
 
@@ -141,62 +182,15 @@ les négatifs du site et le temps de revisite. L'effort est donc mis là.
 
 ---
 
-## 2. Pourquoi OpenIPC
+## 2. REPORT: OpenIPC comme piste de laboratoire
 
-Écrire pour un SoC particulier lierait le projet à une référence, un fournisseur
-et une génération de puce déjà figée. OpenVigie cible le **firmware** et ne parle
-qu'à quatre interfaces stables : `majestic` (flux et snapshot), `cli -g/-s`
-(configuration), `ipctool` (inventaire), `/etc/os-release`.
-
-```bash
-openvigie hw --soc ssc338q     --sensor IMX335    # → utilisable immédiatement
-openvigie hw --soc hi3516av300 --sensor IMX675    # → SoC supporté, pilote à porter
-openvigie majestic --host 192.168.1.64            # profil de réglages pour la détection
-./scripts/openipc_deploy.sh 192.168.1.64 --apply
-```
-
-| SoC | Famille | Accélérateur | IVE | Backend conseillé |
-|---|---|---|---|---|
-| hi3516av300, hi3516cv500 | HiSilicon CV500 | **NNIE** | oui | `nnie` |
-| hi3516ev300, hi3516cv300 | HiSilicon | aucun | oui | `classical` |
-| gk7605v100, gk7205v300 | Goke | aucun | oui | `classical` |
-| ssc338q, ssc30kq | SigmaStar | aucun | non | `classical` |
-| t31, t41 | Ingenic | NPU (SDK propriétaire) | non | `classical` |
-
-**Deux conditions indépendantes** décident si une carte est achetable — les
-confondre est la première source d'erreur : le SoC est-il supporté, et le pilote
-capteur est-il en amont ?
-
-| Capteur | Pilote OpenIPC |
-|---|---|
-| IMX307, IMX327, IMX335, IMX415 | **en amont** |
-| IMX662, IMX664, IMX675, IMX678, IMX585 (STARVIS 2) | **à porter** |
-
-Le portage IMX675 **n'est pas fait** et ne peut pas l'être sans matériel ni
-documentation constructeur. Ce qui existe : la procédure, les paramètres
-attendus et un harnais de validation exécutable par qui dispose d'une carte
-(`openvigie sensor-validate`). Voir [docs/PORTAGE_IMX675.md](docs/PORTAGE_IMX675.md).
-
-Recommandation : **porter IMX675 + HI3516AV300 en priorité** — cette seule
-combinaison couvre les modules fixes 5 MP, les blocs caméra zoom 20×/30×, le NNIE et le NIR
-STARVIS 2, et un portage débloque toutes les cartes du même capteur. En
-attendant, **IMX335 + HI3516AV300 est opérationnel aujourd'hui** et permet de
-développer et valider l'intégralité du logiciel.
-
-### Le profil majestic
-
-Les réglages par défaut d'une caméra de vidéosurveillance détruisent le signal
-recherché. Trois en particulier :
-
-- **`.isp.3dnr`** — la réduction de bruit temporelle agressive efface une fumée
-  fine en mouvement lent. C'est exactement le signal recherché.
-- **`.isp.drc`** — le WDR modifie le mapping tonal image par image, donc le
-  modèle de fond voit un changement global à chaque bascule.
-- **`.image.mirror`** — invalide la relation colonne → azimut, donc envoie les
-  alertes avec un relèvement faux.
-
-Et la règle non négociable : **snapshot JPEG q≥90 (`http://<ip>/image.jpg`),
-jamais le flux H.265.** Détails dans [docs/OPENIPC.md](docs/OPENIPC.md).
+**OpenIPC n'est plus une priorité de contribution.** Pyronear dispose déjà de
+caméras Reolink 8 MP/PTZ bien intégrées et de contrôles snapshot, encodage,
+zoom/focus et calibration. Les réglages image avancés Reolink peuvent être
+configurés sur la caméra ; s'ils s'avèrent nécessaires à la détection, la
+première option est d'étendre proprement l'intégration Reolink de Pyronear.
+OpenIPC reste ici un banc d'essai pour mesurer, et non supposer, un gain
+d'ISP ouvert, de consommation ou d'exécution directement dans la caméra.
 
 ---
 
@@ -275,32 +269,7 @@ La probabilité du réseau ne déclenche **jamais** seule.
 
 ---
 
-## 5. Conception matérielle en trois niveaux
-
-| | MINIMAL | MEDIUM | FULL |
-|---|---|---|---|
-| Rôle | campagne de mesure | surveillance autonome | surveillance opérationnelle |
-| Caméras | 1 IMX675 2,7–13,5 mm sur tête pan/tilt + témoin IMX335 | **8 modules fixes** + caméra zoom PTZ de confirmation | **14 modules fixes** + caméra zoom PTZ de confirmation |
-| Calcul | dans la caméra | dans les caméras | calculateur externe |
-| **Portée honnête** | **8,0 km sur le secteur 140° par défaut** | **6,5 km** | **11,5 km** |
-| Revisite | 1,27 min | 0,17 min | 0,1 min |
-| Usure de ronde | ~1,66 M mvts/an si balayage continu | **0** pour la détection | **0** pour la détection |
-| Coût indicatif du banc/site | ~360 $ | ~2 370 $ | ~3 694 $ |
-
-Le préréglage `minimal` est désormais réellement sectoriel : 140°/4 positions/8 km. Ce secteur d'exemple doit être remplacé par le viewshed réel.
-
-**Un bloc `SIP-K675A-30X` n'est pas une tête PTZ.** C'est une caméra à zoom
-optique destinée à être montée sur une mécanique Pan/Tilt. Le
-`SIP-K675A-27135` possède déjà un zoom motorisé 2,7–13,5 mm, suffisant pour les
-focales de détection prévues par les tiers MEDIUM/FULL. Le 20×/30× apporte
-surtout une plage téléobjectif pour la confirmation; sans Pan/Tilt, il ne change
-pas la direction observée.
-
-Détail, variantes et nomenclature annotée : [docs/HARDWARE.md](docs/HARDWARE.md).
-
----
-
-## 6. Le pipeline
+## 5. Le pipeline
 
 ```
 snapshot JPEG q≥90        (jamais le flux H.265 : il détruit la fumée fine)
@@ -337,13 +306,13 @@ secours dans le mauvais vallon.
 
 ---
 
-## 7. Du capteur au système
+## 6. Du capteur au système
 
 Une caméra qui détecte n'est pas encore utile aux secours. La valeur
 opérationnelle vient de la localisation, du recoupement, de la supervision et de
 la validation humaine.
 
-### Géoréférencement par MNT
+### Géoréférencement par MNT - TODO: à adapter pour Pyronear si besoin
 
 ```python
 from openvigie.dem import DEM
@@ -508,7 +477,7 @@ le meilleur rendement du projet après le détecteur lui-même.
 
 ---
 
-## 8. Modèles, données, faux positifs
+## 7. Modèles, données, faux positifs
 
 ### Modèles
 
@@ -569,7 +538,7 @@ mensuel, seuils recalibrés par site après 3–4 semaines.
 
 ---
 
-## 9. Ce qu'il faut exclure
+## 8. Ce qu'il faut exclure
 
 | Technique | Motif |
 |---|---|
@@ -593,7 +562,7 @@ mensuel, seuils recalibrés par site après 3–4 semaines.
 
 ---
 
-## 10. Mise en service
+## 9. Mise en service - TODO: ré-évaluer avec Pyronear
 
 | Phase | Durée | Contenu | Critère de sortie |
 |---|---|---|---|
@@ -613,7 +582,7 @@ La suite : [ROADMAP.md](ROADMAP.md).
 
 ---
 
-## 11. Installation et usage
+## 10. Installation et usage - TODO: ré-évaluer avec Pyronear
 
 ```bash
 git clone https://github.com/doxav/OpenVigie.git && cd OpenVigie
@@ -699,7 +668,7 @@ make test-all      # avec ET sans OpenCV/SciPy — ce que doit passer toute cont
 
 ---
 
-## 12. Licence et responsabilité
+## 11. Licence et responsabilité
 
 Cœur sous **Apache-2.0**. Un greffon optionnel s'appuie sur Ultralytics
 (AGPL-3.0) et n'est jamais installé par défaut :
