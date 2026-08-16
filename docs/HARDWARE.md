@@ -6,6 +6,19 @@ les tests. Elles sont plus modestes que ce qu'annonce la plupart des fiches
 produit, pour une raison simple : la fiche produit parle de « voir un panache »,
 et nous parlons de « détecter automatiquement un panache naissant de 30 m ».
 
+> [!WARNING]
+> **Une caméra « IA feu/fumée » du commerce n'est presque jamais une caméra de
+> guet.** Les gammes IA anti-incendie des grands fabricants de vidéosurveillance
+> (Dahua, Hikvision, ANNKE) et la plupart des annonces génériques AliExpress
+> ciblent un **bâtiment**, pas une forêt : la fiche technique Dahua
+> `DHI-HY-SAV849HAP-E` annonce une couverture fumée de **30 à 60 m²**, la
+> `DHI-HY-FT121LDP-TD1F4` une portée flamme de **10 m**. Un massif forestier
+> se surveille en kilomètres. Le vocabulaire marketing (« IA », « détection
+> précoce », « fumée et flamme ») est identique dans les deux cas — seule la
+> fiche technique le distingue. Voir [la veille marché](VEILLE_MARCHE.md)
+> pour le détail des solutions existantes, aucune achetable rapidement par une
+> commune à ce périmètre.
+
 ---
 
 ## 0. La règle de dimensionnement

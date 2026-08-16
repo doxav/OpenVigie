@@ -4,6 +4,14 @@
 pylônes, châteaux d'eau. Projet open source (Apache-2.0), conçu autour
 d'**OpenIPC** pour rester indépendant d'une référence de matériel.
 
+> [!WARNING]
+> **Une caméra « IA feu/fumée » du commerce n'est presque jamais une caméra
+> de guet.** Les gammes IA anti-incendie des grands fabricants
+> (Dahua, Hikvision, ANNKE) et la plupart des annonces AliExpress ciblent un
+> **bâtiment** (30 à 60 m² de couverture) — pas une forêt (plusieurs km).
+> Détail : [docs/HARDWARE.md](docs/HARDWARE.md#0-la-règle-de-dimensionnement) ·
+> [docs/VEILLE_MARCHE.md](docs/VEILLE_MARCHE.md).
+
 ```bash
 openvigie hw --matrix                          # quelles cartes sont utilisables
 openvigie plan   -c config/tiers/medium.yaml   # combien de caméras, quelle portée, quelle revisite
