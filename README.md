@@ -148,10 +148,10 @@ justement pour que chacun puisse s'arrêter et reprendre sans rien casser.
 - [Pourquoi maintenant, et comment aider](#pourquoi-maintenant-et-comment-aider)
 
 1. [Le parti pris](#1-le-parti-pris)
-2. [OpenIPC comme piste de laboratoire](#2-openipc-comme-piste-de-laboratoire)
+2. [REPORTE: OpenIPC comme piste de laboratoire](#2-openipc-comme-piste-de-laboratoire)
 3. [Le calcul qui commande tout](#3-le-calcul-qui-commande-tout)
 4. [Symptômes à détecter](#4-symptômes-à-détecter)
-5. [Le pipeline](#6-le-pipeline)
+5.  [Le pipeline](#6-le-pipeline)
 6. [Du capteur au système](#7-du-capteur-au-système)
 7. [Modèles, données, faux positifs](#8-modèles-données-faux-positifs)
 8. [Ce qu'il faut exclure](#9-ce-quil-faut-exclure)
