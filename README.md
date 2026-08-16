@@ -1,8 +1,7 @@
 # OpenVigie
 
 **Détection précoce de feux de forêt depuis des points hauts** — tours télécom,
-pylônes, châteaux d'eau. Projet open source (Apache-2.0), conçu autour
-d'**OpenIPC** pour rester indépendant d'une référence de matériel.
+pylônes, châteaux d'eau. Projet open source (Apache-2.0).
 
 > [!WARNING]
 > **Une caméra « IA feu/fumée » du commerce n'est presque jamais une caméra
