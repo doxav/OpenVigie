@@ -1,8 +1,13 @@
 # Contributions prêtes à proposer à Pyronear
 
-*Deux briques développées et validées dans OpenVigie, sans matériel, destinées
-à être proposées en amont plutôt que gardées ici. Elles visent des défauts
-observés en production, pas des manques théoriques.*
+*Quatre briques développées et validées dans OpenVigie, sans matériel,
+destinées à être proposées en amont plutôt que gardées ici. Elles visent des
+défauts observés en production, pas des manques théoriques, et couvrent les
+quatre contributions au meilleur rapport impact/charge identifiées par l'audit
+des faiblesses Pyronear.*
+
+**État d'envoi : [UPSTREAM_TRACKING.md](UPSTREAM_TRACKING.md).** Aucune n'a
+encore été soumise.
 
 Le principe suivi est `upstream-first` : on démontre le correctif sur un banc
 d'essai reproductible, puis on propose un changement **chirurgical** qui épouse
@@ -178,3 +183,104 @@ plutôt que figé.
   d'une des deux stacks.
 - Le seuil de collision et les seuils d'association demandent une calibration
   sur données réelles avant d'être proposés comme valeurs par défaut.
+
+
+---
+
+## 3. Métriques opérationnelles — [`opmetrics.py`](../src/openvigie/opmetrics.py)
+
+### Le défaut
+
+`pyro-eval` rapporte precision, recall, F1 et ROC/AUC. Ce sont les bonnes
+mesures pour comparer des détecteurs ; ce sont les mauvaises pour décider d'un
+déploiement.
+
+**Le F1 pondère identiquement un faux positif de fond et une fumée manquée.**
+Or les deux n'ont ni le même coût ni la même fréquence : un jeu de test
+équilibre grossièrement fond et fumée, alors qu'une caméra produit des milliers
+d'images de fond par départ de feu. D'où le chiffre qui manque :
+
+```
+images/caméra/jour à 30 s : 2880
+
+  FPR 0.050 ->    144 fausses alertes/caméra/jour
+  FPR 0.171 ->    492 fausses alertes/caméra/jour
+  FPR 0.470 ->   1354 fausses alertes/caméra/jour
+
+  budget 1 FP/jour -> FPR max 0.000347
+```
+
+Un FPR qui paraît anodin sur un benchmark devient une charge que personne
+n'assume. Plusieurs modèles de l'historique du dépôt sont dans cette plage.
+
+**Le rappel global masque où le système échoue.** Il est dominé par les cas
+faciles — fumées grosses et proches — qui sont aussi les moins urgents.
+
+### La démonstration
+
+```
+baseline  : rappel global 0.60 | pire strate 0.60
+candidat  : rappel global 0.60 | pire strate 0.20
+
+2 régression(s) bloquante(s) :
+  - [stratum_recall] plume_size_px [0, 20) px    : rappel en baisse de 0.400
+  - [stratum_recall] distance_m [7000, 15000) m  : rappel en baisse de 0.400
+```
+
+Rappel global **identique**. Petites fumées lointaines — les départs précoces,
+c'est-à-dire la raison d'être du système — de 0,60 à 0,20. Aucun classement
+agrégé n'attrape ça.
+
+### Le correctif
+
+Charge (`fp_per_camera_per_day`), délai (médiane **et p90**, parce que la queue
+fait perdre un massif), rappel stratifié par taille/distance/visibilité avec
+l'effectif exposé, garde de non-régression strate par strate, et front de
+Pareto — parce qu'il n'existe pas de meilleur réglage dans l'absolu et que
+l'arbitrage revient à qui en assume les conséquences.
+
+Forme de la PR : [`PR3`](upstream/PR3_pyro-eval_opmetrics.md).
+
+---
+
+## 4. Intégrité du jeu de données — [`dataintegrity.py`](../src/openvigie/dataintegrity.py)
+
+### Le défaut
+
+`tests/test_data_leakage.py` couvre soigneusement la fuite entre splits. Mais
+les tests sont paramétrés **par** catégorie :
+
+```python
+@pytest.mark.parametrize("category", SEQ_CATEGORIES)   # ["wildfire", "fp"]
+def test_sequential_no_sequence_leakage(...):
+    cat_a = dir_a / category
+    cat_b = dir_b / category      # même catégorie des deux côtés
+```
+
+`wildfire` et `fp` ne sont donc jamais croisés **entre eux**. Il reste possible
+qu'un même identifiant soit présent dans les deux classes : rien n'échoue,
+chaque classe est cohérente prise isolément, et un vrai feu se retrouve appris
+comme exemple de ce qu'il ne faut pas détecter.
+
+Les deux contrôles se ressemblent et ne se recouvrent pas.
+
+### Le correctif
+
+`find_class_collisions` / `assert_no_class_collision`, indépendants du split —
+une séquence « feu » en train et « faux positif » en test est tout aussi
+corrompue. Le message dit la **conséquence**, pas seulement le fait : une ligne
+de journal « identifiant en double » se fait ignorer, « ce feu sera appris
+comme ce qu'il ne faut pas détecter » non.
+
+S'y ajoutent, optionnels, un registre de split (détection de dérive entre deux
+constructions, en distinguant ajout/retrait/**déplacement**) et un
+« construire deux fois et comparer ».
+
+### Ce qui n'est délibérément pas proposé
+
+L'audit signalait aussi un jeu de test instable entre constructions. Le clone
+du dépôt montre qu'un mécanisme de lockfile a depuis été ajouté. Proposer ce
+correctif ferait perdre du temps à tout le monde — seule la partie restée
+ouverte est proposée.
+
+Forme de la PR : [`PR4`](upstream/PR4_pyro-dataset_integrity.md).

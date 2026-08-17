@@ -26,16 +26,54 @@ sont génériques. OpenVigie reste un banc d'essai autonome ; l'objectif n'est
 plus de reconstruire une seconde API, une seconde plateforme ou une seconde
 chaîne MLOps.
 
-**Premières contributions prêtes à proposer en amont** (développées et
-validées ici, sans matériel) :
+### Contributions prêtes à proposer en amont
 
-| Brique OpenVigie | Défaut visé en amont | Statut |
-|---|---|---|
-| [`association.py`](src/openvigie/association.py) | association `first-match-wins` : une boîte anormalement grande peut voler les détections d'un autre feu | validé par rejeu d'un scénario d'incident |
-| [`posehealth.py`](src/openvigie/posehealth.py) | tête PTZ bloquée ou caméra hors ligne déclarées saines : zone aveugle invisible | validé sur scénarios synthétiques |
+Développées et validées ici, sans matériel. Elles couvrent les **quatre
+contributions au meilleur rapport impact/charge** identifiées par l'audit des
+faiblesses Pyronear.
 
-Détail, démonstration chiffrée et forme des PR :
+| Nº | Brique OpenVigie | Défaut visé en amont | Cible | État |
+|---|---|---|---|---|
+| 1 | [`association.py`](src/openvigie/association.py) | `first-match-wins` : une boîte anormalement grande vole les détections d'un autre feu | `pyro-api` | **prêt, non envoyé** |
+| 2 | [`posehealth.py`](src/openvigie/posehealth.py) | tête PTZ bloquée ou caméra hors ligne déclarées saines : zone aveugle invisible | `pyro-engine` | **prêt, non envoyé** |
+| 3 | [`opmetrics.py`](src/openvigie/opmetrics.py) | le F1 masque un système inutilisable ; une nouvelle version peut régresser sans que l'agrégat le montre | `pyro-eval` | **prêt, non envoyé** |
+| 4 | [`dataintegrity.py`](src/openvigie/dataintegrity.py) | un même identifiant en « feu » **et** en « faux positif » : un vrai feu appris comme contre-exemple | `pyro-dataset` | **prêt, non envoyé** |
+
+**Suivi des PR : [docs/UPSTREAM_TRACKING.md](docs/UPSTREAM_TRACKING.md)** —
+états, procédure d'envoi, leçons tirées. Textes de PR versionnés dans
+[`docs/upstream/`](docs/upstream/). Diagnostic et démonstrations chiffrées :
 [docs/CONTRIB_PYRONEAR.md](docs/CONTRIB_PYRONEAR.md).
+
+### Comment ce dépôt est organisé pour contribuer en amont
+
+Le dépôt sert deux usages à la fois, et la séparation est explicite :
+
+```
+src/openvigie/
+├── association.py  posehealth.py  ← briques UPSTREAM : pures, sans
+│   opmetrics.py    dataintegrity.py   dépendance au reste d'OpenVigie,
+│                                      conçues pour être reprises telles
+│                                      quelles ou adaptées en amont
+│
+├── pipeline.py  agent.py  config.py  ← banc d'essai OpenVigie : intègre
+│   dem.py  calibration.py  …            les briques et permet de les
+│                                        éprouver de bout en bout
+docs/
+├── UPSTREAM_TRACKING.md   ← registre des états de PR (source de vérité)
+├── CONTRIB_PYRONEAR.md    ← diagnostic + démonstrations chiffrées
+└── upstream/PR*.md        ← textes de PR, versionnés et révisables
+```
+
+**Règle tenue pour une brique upstream** : aucune dépendance à `config.py`,
+`pipeline.py` ou à un format propre à OpenVigie — uniquement NumPy et la
+bibliothèque standard. Elle doit pouvoir être copiée dans un autre dépôt sans
+rien entraîner derrière elle. Les tests correspondants
+(`tests/test_upstream_contributions*.py`) suivent la même règle.
+
+**Règle tenue pour la validation** : chaque brique embarque un test qui
+**rejoue le défaut côte à côte** — logique actuelle d'abord, logique proposée
+ensuite, sur les mêmes données. Sans ce contraste, « c'est plus robuste »
+n'est qu'une opinion.
 
 **Priorités de contribution / expérimentation :**
 
