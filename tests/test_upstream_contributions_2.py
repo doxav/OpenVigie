@@ -11,6 +11,8 @@ Deux tests portent l'essentiel de la démonstration :
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from openvigie.dataintegrity import (
@@ -498,3 +500,72 @@ class TestRapportGlobal:
 
     def test_serialisation(self):
         assert IntegrityReport().as_dict()["ok"] is True
+
+
+# =========================================================================== #
+# Filtre temporel — la nuance qui rend la conversion FPR honnête
+# =========================================================================== #
+class TestFiltreTemporel:
+    """Un moteur sérieux applique un lissage par fenêtre glissante avec vote
+    majoritaire. Ignorer ce filtre ferait surestimer la charge d'un facteur
+    considérable ; en conclure qu'un FPR élevé est sans conséquence serait
+    l'erreur inverse, et c'est celle qui coûte cher."""
+
+    def test_le_filtre_ecrase_le_scintillement(self):
+        """Un faux positif détecté 5 % des images ne franchit quasiment jamais
+        un vote majoritaire sur 8 images."""
+        from openvigie.opmetrics import temporal_survival_probability
+
+        assert temporal_survival_probability(0.05, window=8) < 0.001
+
+    def test_le_filtre_ne_protege_pas_de_la_persistance(self):
+        """Un banc de brouillard ou un panache industriel est là image après
+        image, au même endroit : le filtre le laisse passer presque toujours.
+        C'est pourquoi un FPR faible ne garantit rien à lui seul."""
+        from openvigie.opmetrics import temporal_survival_probability
+
+        assert temporal_survival_probability(0.8, window=8) > 0.95
+
+    def test_survie_croissante_avec_la_persistance(self):
+        from openvigie.opmetrics import temporal_survival_probability
+
+        valeurs = [temporal_survival_probability(p, window=8) for p in (0.05, 0.2, 0.5, 0.8)]
+        assert valeurs == sorted(valeurs)
+
+    def test_fenetre_plus_longue_filtre_davantage(self):
+        from openvigie.opmetrics import temporal_survival_probability
+
+        assert temporal_survival_probability(0.3, window=12) < temporal_survival_probability(0.3, window=4)
+
+    def test_bornes(self):
+        from openvigie.opmetrics import temporal_survival_probability
+
+        assert temporal_survival_probability(0.0, window=8) == pytest.approx(0.0)
+        assert temporal_survival_probability(1.0, window=8) == pytest.approx(1.0)
+
+    def test_parametres_invalides(self):
+        from openvigie.opmetrics import temporal_survival_probability
+
+        with pytest.raises(ValueError):
+            temporal_survival_probability(1.5, window=8)
+        with pytest.raises(ValueError):
+            temporal_survival_probability(0.5, window=0)
+        with pytest.raises(ValueError):
+            temporal_survival_probability(0.5, window=8, min_hits=99)
+
+    def test_facteur_de_suppression(self):
+        """Mesure la DÉPENDANCE au filtre : un facteur élevé signifie que la
+        performance apparente repose sur lui, pas sur le détecteur."""
+        from openvigie.opmetrics import temporal_suppression_factor
+
+        assert temporal_suppression_factor(2880.0, 2.0) == pytest.approx(1440.0)
+
+    def test_suppression_totale(self):
+        from openvigie.opmetrics import temporal_suppression_factor
+
+        assert math.isinf(temporal_suppression_factor(2880.0, 0.0))
+
+    def test_aucune_activation(self):
+        from openvigie.opmetrics import temporal_suppression_factor
+
+        assert temporal_suppression_factor(0.0, 0.0) == 1.0

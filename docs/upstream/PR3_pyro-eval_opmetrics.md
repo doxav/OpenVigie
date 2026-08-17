@@ -1,136 +1,138 @@
 PR #3 — pyro-eval
-Title: feat(metrics): operational KPIs (FP/camera/day, TTD, stratified recall) and a non-regression release gate
+Title: feat(metrics): stratified recall, FP/camera/day and a non-regression gate
 
-## Problem
+Hello 👋 — I've been building [OpenVigie](https://github.com/doxav/OpenVigie),
+a watch-tower detection toolkit, and kept running into the same evaluation
+questions you've already thought about. Rather than reinvent them badly on my
+side, here's what I ended up with, offered upstream.
 
-`pyro-eval` currently reports precision, recall, F1 and ROC/AUC, at image and
-sequence level. Those are the right metrics for comparing detectors in the
-abstract. They are the wrong metrics for deciding whether a model can be
-deployed, for two reasons.
+**I read the code first, so let me start with what you already have**, because
+my first draft of this PR got two things wrong:
 
-### F1 weights a background false positive like a missed fire
+- sequence-level precision / recall / F1 — already there;
+- `avg_detection_delay` — already there too.
 
-The two have neither the same cost nor the same frequency. A missed plume can
-cost a forest; a false positive costs an operator one check. And a benchmark
-roughly balances background and smoke, while a camera in the field produces
-**thousands of background frames per fire**.
+So this isn't "you have no operational metrics". It's four specific gaps I hit,
+in decreasing order of how much they bit me.
 
-The practical consequence is a number that is missing from the current report:
+---
 
-```
-frames per camera per day at 30 s cadence : 2880
-
-  FPR 0.050  ->    144 false alerts / camera / day
-  FPR 0.171  ->    492 false alerts / camera / day
-  FPR 0.470  ->   1354 false alerts / camera / day
-
-  budget of 1 FP/day  ->  max FPR 0.000347
-```
-
-An FPR that looks unremarkable on a benchmark is unmanageable once multiplied
-by real frame counts. Several models in the repository's own history sit in
-that range — a high-recall model at FPR 0.47, and an augmentation experiment
-that moved FPR from 0.065 to 0.171. Reported as FPR they look like tuning
-choices; reported as FP/camera/day they are go/no-go decisions.
-
-### Aggregate recall hides where the system actually fails
+## 1. Aggregate recall hides where the system fails
 
 Global recall is dominated by the easy cases — large, close plumes — which are
 also the least urgent. A model can improve its headline number while losing
 exactly the capability the system exists for.
 
-Concrete example, computed on synthetic sequences with the proposed module:
+Computed with the proposed module on synthetic sequences:
 
 ```
 baseline  : global recall 0.60 | worst stratum 0.60
 candidate : global recall 0.60 | worst stratum 0.20
 
 2 blocking regressions:
-  - [stratum_recall] plume_size_px [0, 20) px  : recall down 0.400
-  - [stratum_recall] distance_m [7000, 15000) m : recall down 0.400
+  - [stratum_recall] plume_size_px [0, 20) px    : recall down 0.400
+  - [stratum_recall] distance_m [7000, 15000) m  : recall down 0.400
 ```
 
 Identical aggregate recall. Small distant plumes — early detections, the whole
-point — down from 0.60 to 0.20. No aggregate ranking catches this.
+point — down from 0.60 to 0.20. No aggregate ranking catches that, which is why
+`stratified_recall()` keeps `n` visible per stratum: a recall of 1.0 over two
+sequences means nothing, and hiding the count would be worse than showing it.
 
-This matches the repository's own observation that two more recent production
-models scored below the v6 baseline on the shared benchmark.
+## 2. Average delay is the wrong statistic
 
-## Proposed change
+`avg_detection_delay` exists, but the distribution is strongly skewed. A system
+with an excellent mean that takes an hour one time in ten isn't dependable, and
+the mean won't say so. `detection_delays()` reports **median and p90**, and
+counts undetected fires separately rather than imputing a value — imputing
+would quietly distort the very statistic you're reading.
 
-An additive module. Nothing existing is removed — precision/recall/F1/ROC stay
-useful for model comparison; these metrics answer a different question.
+## 3. FPR isn't comparable across datasets, nor readable as workload
 
-**Operational metrics**
+`fpr_to_fp_per_camera_per_day(fpr, frames_per_day)` normalises it:
 
-- `fp_per_camera_per_day` — the number an operations service can actually
-  discuss, and the one a duty officer feels;
-- `time_to_detect` — median **and p90**, because the tail is what loses a
-  forest: a system with an excellent median that takes an hour one time in ten
-  is not dependable;
-- `stratified_recall` — by plume size, distance and visibility, with the
-  stratum count kept visible (a recall of 1.0 over two sequences means
-  nothing, and hiding `n` would be worse than showing it).
+```
+frames per camera per day at 30 s cadence : 2880
+  FPR 0.05 -> 144 raw activations / camera / day
+  budget of 1 alert/day -> max FPR 0.000347
+```
 
-**Conversion helpers**
+**Important caveat, and I got this wrong at first**: that is *not*
+operator-visible alerts. Your predictor smooths over `nb_consecutive_frames`
+with a majority vote on spatially-consistent boxes plus hysteresis, which
+removes most of these before they ever become alerts. What the conversion
+actually measures is the **input load on that temporal filter**.
 
-- `fpr_to_fp_per_camera_per_day(fpr, frames_per_day)`;
-- `fp_budget_to_max_fpr(budget, frames_per_day)` — choosing a threshold from
-  what the service accepts, rather than from where the ROC curve looks nice.
+I still think it's worth reporting, because the filter's protection is very
+uneven:
 
-**Release gate**
+```
+window of 8, majority vote:
+  FP present in  5% of frames -> survives  0.04%   (flicker: crushed)
+  FP present in 20% of frames -> survives  5.6%
+  FP present in 80% of frames -> survives 99.0%    (persistence: untouched)
+```
+
+Temporal smoothing is near-perfect against erratic artefacts and near-useless
+against **persistent** ones — fog banks, industrial plumes, dust, stationary
+cloud. Which are exactly the false positives that cost operator time. So a
+given FPR isn't reassuring on the grounds that a temporal filter follows it:
+what matters is the *persistent fraction*, which FPR alone doesn't tell you.
+
+`temporal_suppression_factor(raw, observed)` makes the dependency explicit — a
+factor of 1440 means the filter absorbs 99.93 % of activations, and apparent
+performance rests on it rather than on the detector. Worth watching rather than
+celebrating.
+
+## 4. Nothing blocks a regression
 
 `release_gate(baseline, candidate)` refuses a version that regresses on **any**
-stratum, even if its aggregate improves. Tolerances are deliberately
-asymmetric: some extra false-positive load is manageable, a recall or delay
-regression is not. Strata below `min_stratum_size` are not opposable — blocking
-a release on a recall computed over two sequences would destroy trust in the
-gate itself.
+stratum, even if its aggregate improves. Tolerances are deliberately asymmetric
+— extra false-positive load is manageable, a recall or delay regression isn't.
+Strata below `min_stratum_size` aren't opposable, because blocking a release on
+a recall computed over two sequences would destroy trust in the gate itself.
 
-**Pareto front**
+Plus `pareto_front()` / `select_under_budget()`, because there's no single best
+setting: lowering a threshold buys recall and costs false positives. Exposing
+the non-dominated set leaves the trade-off to whoever bears its consequences. A
+change like "FP 114→86, FN 1→2" is a *move along the front* — neither an
+improvement nor a regression — and current reporting can't express that.
 
-`pareto_front()` and `select_under_budget()`. There is no single best setting:
-lowering a threshold buys recall and costs false positives. Exposing the
-non-dominated set leaves the trade-off to whoever bears its consequences,
-instead of freezing it into one ranking. This directly supports the
-recall/FP/delay trade-off already documented in the temporal model work
-(FP 114→86, FN 1→2, median trigger 1→3 frames) — that change is a *move along
-the front*, not an improvement or a regression, and the current reporting
-cannot express that.
+---
 
 ## Shape of the patch
 
-1. new pure module `pyro_eval/opmetrics.py` (NumPy only, no new dependency);
-2. `evaluation.py` reports the operational block alongside the existing one;
+Purely additive; nothing existing is removed or changed.
+
+1. new module `pyro_eval/opmetrics.py` — NumPy + stdlib only, no new dependency;
+2. `evaluation.py` prints the operational block alongside the existing one;
 3. optional `--baseline <run>` on `run_evaluation.py` to run the gate in CI;
 4. tests.
 
-Reference implementation, fully tested (67 tests):
+Reference implementation, 76 tests:
 [`openvigie/opmetrics.py`](https://github.com/doxav/OpenVigie/blob/main/src/openvigie/opmetrics.py)
-— Apache-2.0, same licence, free to vendor or adapt.
+— Apache-2.0, same licence, free to vendor, adapt or cherry-pick. If only the
+stratified recall and the gate are of interest, they stand alone.
 
-## Open questions for maintainers
+## Questions I genuinely don't know the answer to
 
-- **What are your real cadence figures?** `frames_per_camera_per_day` defaults
-  to a 30 s pose cadence; the FP/day conversion is only as good as that input,
-  and it likely differs per deployment.
-- **Which strata matter most to you?** I implemented size and distance because
-  they are derivable from the annotations; visibility is supported but needs a
+- **What's your real cadence?** The FP/day conversion is only as good as
+  `frames_per_camera_per_day`, and it presumably varies per deployment.
+- **Which strata matter to you?** I implemented size and distance because
+  they're derivable from annotations. Visibility is supported but needs a
   field. If your annotations carry something better, the binning is
   parameterised.
-- **Should the gate block CI, or only report?** I would start with report-only
-  for a season, collect what it would have blocked, then decide — blocking on
-  thresholds nobody has calibrated yet would be premature.
-- **Do you already have a preferred TTD definition?** Mine is
-  ignition → first alert, with undetected fires counted separately rather than
-  imputed, since imputing would distort the median. If your annotations define
-  ignition differently, this needs aligning before any number is comparable.
+- **Gate blocking, or report-only?** I'd start report-only for a season,
+  collect what it *would* have blocked, then decide. Blocking on thresholds
+  nobody has calibrated seems premature.
+- **How do you define ignition for TTD?** Mine is ignition → first alert. If
+  yours differs, no number is comparable until that's aligned.
 
 ## Honest limitation
 
-The thresholds in `GateConfig` are engineering judgement, not measurements.
-They should be calibrated on your annotated sequences before being used to
-block anything. And the whole module has been validated on synthetic outcomes
-only — I have no access to your evaluation data. What I can vouch for is that
-the metrics compute what they claim; whether the defaults are right for your
-deployments is exactly what I would want your input on.
+Validated on synthetic outcomes — I have no access to your evaluation data, so
+the thresholds in `GateConfig` are engineering judgement, not measurement. What
+I can vouch for is that the metrics compute what they claim. Whether the
+defaults suit your deployments is exactly where I'd want your input, and I'm
+happy to be told the framing is wrong — I've already had to correct it once
+after reading your code more carefully.

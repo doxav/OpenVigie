@@ -27,10 +27,11 @@ une charge de travail que quelqu'un devra assumer.
 Trois familles, toutes exprimées dans des unités qu'un service opérationnel
 peut discuter :
 
-1. **charge** — faux positifs par caméra et par jour ;
-2. **délai** — temps de détection depuis l'ignition (médiane et p90, pas
-   seulement la moyenne, parce que la queue de distribution est ce qui fait
-   perdre un feu) ;
+1. **charge** — faux positifs par caméra et par jour, mesurés au niveau
+   séquence, c'est-à-dire après filtrage temporel ;
+2. **délai** — temps de détection depuis l'ignition, en **médiane et p90**
+   plutôt qu'en moyenne : la distribution est fortement asymétrique, et c'est
+   sa queue qui fait perdre un massif ;
 3. **couverture stratifiée** — rappel par taille de panache, distance et
    visibilité. Un rappel global élevé peut parfaitement cacher que les petites
    fumées lointaines, c'est-à-dire les départs précoces, sont toutes manquées.
@@ -73,11 +74,27 @@ def frames_per_camera_per_day(
 
 
 def fpr_to_fp_per_camera_per_day(fpr: float, frames_per_day: float) -> float:
-    """Traduit un taux de faux positifs de benchmark en charge quotidienne.
+    """Traduit un taux de faux positifs **par image** en activations quotidiennes.
 
-    C'est la conversion qui manque le plus souvent. Un FPR de 0,05 semble
-    anodin ; à 2 880 images par caméra et par jour, il vaut 144 fausses alertes
-    quotidiennes **par caméra**. Un service opérationnel décroche bien avant.
+    Un FPR de 0,05 semble anodin ; à 2 880 images par caméra et par jour, il
+    vaut 144 activations quotidiennes **par caméra**.
+
+    ⚠️ **Ce n'est PAS le nombre d'alertes vues par un opérateur**, et le
+    confondre serait une erreur grossière. Un moteur de détection sérieux
+    applique un lissage temporel — fenêtre glissante, vote majoritaire sur des
+    détections spatialement cohérentes — qui supprime l'essentiel de ces
+    activations avant qu'elles ne deviennent des alertes.
+
+    Ce que cette conversion mesure réellement, c'est la **charge d'entrée du
+    filtre temporel**. Elle reste utile pour deux raisons :
+
+    - elle borne ce que le filtre doit absorber, et dit à quel point on dépend
+      de lui ;
+    - elle rend comparables des FPR mesurés sur des jeux de tailles
+      différentes.
+
+    Pour la charge réellement subie, mesurer au niveau **séquence**, après
+    filtrage : c'est ce que fait ``compute_operational_metrics``.
     """
     if not 0.0 <= fpr <= 1.0:
         raise ValueError("fpr doit être dans [0, 1]")
@@ -96,6 +113,66 @@ def fp_budget_to_max_fpr(fp_per_day_budget: float, frames_per_day: float) -> flo
     if frames_per_day <= 0:
         raise ValueError("frames_per_day doit être > 0")
     return max(0.0, fp_per_day_budget / frames_per_day)
+
+
+def temporal_survival_probability(
+    p_per_frame: float, window: int = 8, min_hits: int | None = None
+) -> float:
+    """Probabilité qu'un faux positif **persistant** franchisse le filtre temporel.
+
+    Modélise le lissage par fenêtre glissante employé par les moteurs de
+    détection : sur ``window`` images, il faut qu'au moins ``min_hits``
+    contiennent une détection spatialement cohérente (par défaut la majorité,
+    ``(window + 1) // 2``).
+
+    Le résultat éclaire une asymétrie décisive, et souvent implicite :
+
+    - **contre un faux positif erratique** — un artefact qui apparaît à un
+      endroit différent à chaque image — le filtre est quasi parfait, puisque
+      la cohérence spatiale n'est jamais atteinte ;
+    - **contre un faux positif persistant** — banc de brouillard, panache
+      industriel, poussière, nuage stationnaire — il ne sert presque à rien :
+      la structure est là image après image, au même endroit.
+
+    Or ce sont précisément les faux positifs persistants qui coûtent cher en
+    exploitation. Un taux de faux positifs élevé mesuré sur benchmark n'est
+    donc **pas** rassurant sous prétexte qu'un filtre temporel suit : tout
+    dépend de la **fraction persistante**, que le FPR seul ne dit pas.
+
+    C'est la raison pour laquelle la charge doit se mesurer au niveau séquence
+    et pas se déduire du FPR.
+    """
+    if not 0.0 <= p_per_frame <= 1.0:
+        raise ValueError("p_per_frame doit être dans [0, 1]")
+    if window < 1:
+        raise ValueError("window doit être >= 1")
+    k = (window + 1) // 2 if min_hits is None else min_hits
+    if not 0 <= k <= window:
+        raise ValueError("min_hits doit être dans [0, window]")
+
+    # Survie binomiale : P(X >= k) avec X ~ Bin(window, p).
+    total = 0.0
+    for i in range(k, window + 1):
+        total += math.comb(window, i) * (p_per_frame ** i) * ((1.0 - p_per_frame) ** (window - i))
+    return float(min(1.0, max(0.0, total)))
+
+
+def temporal_suppression_factor(
+    raw_activations_per_day: float, observed_alerts_per_day: float
+) -> float:
+    """Rapport entre activations brutes et alertes réellement émises.
+
+    Mesure à quel point le système **dépend** de son filtre temporel. Un
+    facteur de 1 000 signifie que le filtre absorbe 99,9 % des activations :
+    la performance apparente repose alors sur lui, et non sur le détecteur.
+
+    C'est une dépendance fragile, parce que le filtre est inefficace contre les
+    faux positifs persistants — ceux-là mêmes qui dominent en exploitation. Un
+    facteur très élevé mérite donc d'être surveillé plutôt que célébré.
+    """
+    if observed_alerts_per_day <= 0:
+        return float("inf") if raw_activations_per_day > 0 else 1.0
+    return raw_activations_per_day / observed_alerts_per_day
 
 
 # --------------------------------------------------------------------------- #

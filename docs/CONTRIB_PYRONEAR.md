@@ -191,9 +191,13 @@ plutôt que figé.
 
 ### Le défaut
 
-`pyro-eval` rapporte precision, recall, F1 et ROC/AUC. Ce sont les bonnes
-mesures pour comparer des détecteurs ; ce sont les mauvaises pour décider d'un
-déploiement.
+`pyro-eval` rapporte precision, recall, F1, ROC/AUC — **et déjà** des métriques
+de séquence ainsi qu'un `avg_detection_delay`. Une première version de ce
+diagnostic l'ignorait ; la correction est instructive et vaut d'être dite.
+
+Quatre écarts subsistent : le rappel agrégé masque les strates faibles, la
+moyenne est le mauvais estimateur pour un délai très asymétrique, le FPR n'est
+ni comparable ni lisible comme charge, et rien ne bloque une régression.
 
 **Le F1 pondère identiquement un faux positif de fond et une fumée manquée.**
 Or les deux n'ont ni le même coût ni la même fréquence : un jeu de test
@@ -210,8 +214,13 @@ images/caméra/jour à 30 s : 2880
   budget 1 FP/jour -> FPR max 0.000347
 ```
 
-Un FPR qui paraît anodin sur un benchmark devient une charge que personne
-n'assume. Plusieurs modèles de l'historique du dépôt sont dans cette plage.
+⚠️ Ce ne sont **pas** des alertes vues par un opérateur : le moteur applique un
+lissage temporel à vote majoritaire. La conversion mesure la charge d'entrée de
+ce filtre. Nuance qui compte, parce que la protection du filtre est très
+inégale — 5 % de présence survit à 0,04 %, mais 80 % survit à 99 %. Il écrase
+le scintillement et ne fait rien contre la persistance : brouillard, panache
+industriel, poussière. Or ce sont exactement ceux-là qui coûtent du temps
+opérateur.
 
 **Le rappel global masque où le système échoue.** Il est dominé par les cas
 faciles — fumées grosses et proches — qui sont aussi les moins urgents.

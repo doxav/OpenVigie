@@ -56,6 +56,21 @@ proposer un correctif inadapté :
 
 ## Leçons déjà tirées
 
+**Relire le code cible avant d'affirmer qu'il manque quelque chose.** La
+première version de PR3 annonçait l'absence de métriques opérationnelles dans
+`pyro-eval`. Or les métriques de séquence **et** `avg_detection_delay` y sont
+déjà. Le texte a été refait pour partir de l'existant et ne revendiquer que
+quatre écarts précis. Envoyée telle quelle, la PR aurait été accueillie par
+« on l'a déjà » — et aurait discrédité les suivantes.
+
+**Ne pas ignorer les mécanismes en aval.** La même PR convertissait un FPR par
+image en alertes par jour, en oubliant que le moteur applique un lissage
+temporel à vote majoritaire. La conversion surestimait donc massivement. La
+correction s'est révélée plus intéressante que l'erreur : le filtre écrase le
+scintillement (5 % de présence → 0,04 % de survie) mais laisse passer la
+persistance (80 % → 99 %), et ce sont les faux positifs persistants qui coûtent
+cher. La métrique utile n'est donc pas le FPR mais sa **fraction persistante**.
+
 **Vérifier l'état réel du code cible avant de proposer.** L'audit signalait un
 jeu de test instable entre deux constructions ; en clonant `pyro-dataset`, on
 constate qu'un mécanisme de lockfile a depuis été ajouté (« the lockfile IS the
